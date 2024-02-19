@@ -270,3 +270,4 @@ nhs_region_combined_df = nhs_region_combined_df.fillna(0)
 
 # Save the combined DataFrame
 save_dataframe_pickle(nhs_region_combined_df, "../../data/raw/pickle/nhs_region_data.pkl")
+save_dataframe_csv(nhs_region_combined_df, "../../data/raw/csv/nhs_region_data.csv")
