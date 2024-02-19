@@ -1,6 +1,8 @@
 import pandas as pd
 from epiweeks import Week
 from datetime import datetime
+import requests
+from pathlib import Path
 import os
 import logging
 import sys
@@ -223,3 +225,48 @@ region_df = region_df[colunms]
 region_df.plot(subplots=True, figsize=(20, 10), title=region, xlabel="Date", ylabel="Count")
 plt.show()
 
+
+# List of URLs
+urls = [
+    "https://api.coronavirus.data.gov.uk/v2/data?areaType=nhsRegion&areaCode=E40000007&metric=covidOccupiedMVBeds&metric=hospitalCases&metric=newAdmissions&metric=cumAdmissions&format=csv",
+    "https://api.coronavirus.data.gov.uk/v2/data?areaType=nhsRegion&areaCode=E40000003&metric=covidOccupiedMVBeds&metric=hospitalCases&metric=newAdmissions&metric=cumAdmissions&format=csv",
+    "https://api.coronavirus.data.gov.uk/v2/data?areaType=nhsRegion&areaCode=E40000008&metric=covidOccupiedMVBeds&metric=hospitalCases&metric=newAdmissions&metric=cumAdmissions&format=csv",
+    "https://api.coronavirus.data.gov.uk/v2/data?areaType=nhsRegion&areaCode=E40000009&metric=covidOccupiedMVBeds&metric=hospitalCases&metric=newAdmissions&metric=cumAdmissions&format=csv",
+    "https://api.coronavirus.data.gov.uk/v2/data?areaType=nhsRegion&areaCode=E40000010&metric=covidOccupiedMVBeds&metric=hospitalCases&metric=newAdmissions&metric=cumAdmissions&format=csv",
+    "https://api.coronavirus.data.gov.uk/v2/data?areaType=nhsRegion&areaCode=E40000005&metric=covidOccupiedMVBeds&metric=hospitalCases&metric=newAdmissions&metric=cumAdmissions&format=csv",
+    "https://api.coronavirus.data.gov.uk/v2/data?areaType=nhsRegion&areaCode=E40000006&metric=covidOccupiedMVBeds&metric=hospitalCases&metric=newAdmissions&metric=cumAdmissions&format=csv"
+]
+
+for idx, url in enumerate(urls, start=1):
+    response = requests.get(url)
+
+    if response.status_code == 200:
+        content = response.content
+        # Save the content to a CSV file
+        filename = f"../../data/raw/NHS_region/covid_data_{idx}.csv"
+        with open(filename, "wb") as csv_file:
+            csv_file.write(content)
+        print(f"Data from URL {idx} saved as '{filename}'")
+    else:
+        print(f"Failed to retrieve data from URL {idx}")
+        
+# Load the data into a DataFrame
+nhs_region_dfs = []
+for idx in range(1, 8):
+    filename = f"../../data/raw/NHS_region/covid_data_{idx}.csv"
+    nhs_region_df = pd.read_csv(filename)
+    nhs_region_dfs.append(nhs_region_df)
+    
+# Concatenate the DataFrames
+nhs_region_combined_df = pd.concat(nhs_region_dfs, ignore_index=True)
+
+start_date = pd.to_datetime('2020-04-01')  
+end_date = pd.to_datetime('2023-05-31')  
+
+nhs_region_combined_df["date"] = pd.to_datetime(nhs_region_combined_df["date"])
+
+nhs_region_combined_df = nhs_region_combined_df[(nhs_region_combined_df["date"] >= start_date) & (nhs_region_combined_df["date"] <= end_date)]
+nhs_region_combined_df = nhs_region_combined_df.fillna(0)
+
+# Save the combined DataFrame
+save_dataframe_pickle(nhs_region_combined_df, "../../data/raw/pickle/nhs_region_data.pkl")
