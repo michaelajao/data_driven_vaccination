@@ -34,7 +34,6 @@ This project aims to develop a predictive framework for analyzing the spread of 
 The project's findings could significantly contribute to the global fight against COVID-19 by providing a nuanced understanding of the disease's dynamics and informing effective intervention strategies. By leveraging advanced data-driven methods, this research has the potential to offer actionable insights that can save lives and guide the world towards a faster recovery from the pandemic.
 
 
-
 Project Organization
 ------------
 
