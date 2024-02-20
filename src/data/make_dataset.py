@@ -243,7 +243,7 @@ for idx, url in enumerate(urls, start=1):
     if response.status_code == 200:
         content = response.content
         # Save the content to a CSV file
-        filename = f"../../data/raw/NHS_region/covid_data_{idx}.csv"
+        filename = f"../../data/raw/covid_data_{idx}.csv"
         with open(filename, "wb") as csv_file:
             csv_file.write(content)
         print(f"Data from URL {idx} saved as '{filename}'")
@@ -253,7 +253,7 @@ for idx, url in enumerate(urls, start=1):
 # Load the data into a DataFrame
 nhs_region_dfs = []
 for idx in range(1, 8):
-    filename = f"../../data/raw/NHS_region/covid_data_{idx}.csv"
+    filename = f"../../data/raw/covid_data_{idx}.csv"
     nhs_region_df = pd.read_csv(filename)
     nhs_region_dfs.append(nhs_region_df)
     
@@ -269,5 +269,5 @@ nhs_region_combined_df = nhs_region_combined_df[(nhs_region_combined_df["date"] 
 nhs_region_combined_df = nhs_region_combined_df.fillna(0)
 
 # Save the combined DataFrame
-save_dataframe_pickle(nhs_region_combined_df, "../../data/raw/pickle/nhs_region_data.pkl")
-save_dataframe_csv(nhs_region_combined_df, "../../data/raw/csv/nhs_region_data.csv")
+save_dataframe_pickle(nhs_region_combined_df, "../../data/interim/pickle/nhs_region_data.pkl")
+save_dataframe_csv(nhs_region_combined_df, "../../data/interim/csv/nhs_region_data.csv")
