@@ -183,6 +183,7 @@ for df in [final_df, filtered_df, weekly_aggregated_df]:
     
     
 
+plt.style.use('seaborn-v0_8-white')
 plt.rcParams.update({
     # Line styles and markers
     "lines.linewidth": 2,  # from mpl.rcParams['lines.linewidth']
@@ -195,7 +196,7 @@ plt.rcParams.update({
     # Axes and grid
     "axes.prop_cycle": cycler('color', ['k']) * cycler('marker', ['', 'o', '^', 's', 'v']) *
                        cycler('linestyle', ['-', '--', ':', (0, (5, 2, 5, 5, 1, 4))]),
-    "axes.titlesize": 20,  # Title size from your settings
+    "axes.titlesize": 26,  # Title size from your settings
     "axes.labelsize": 14,  # Label size from your settings
     "axes.spines.top": False,  # Hide the top spine
     "axes.spines.right": False,  # Hide the right spine
@@ -204,7 +205,7 @@ plt.rcParams.update({
     
     # Font settings
     "font.family": "serif",
-    "font.size": 12,  # Default text sizes
+    "font.size": 14,  # Default text sizes
     "font.sans-serif": ["Helvetica"],
     
     # Legend
@@ -213,17 +214,20 @@ plt.rcParams.update({
     "legend.loc": "best",  # Automatic legend placement
     # LaTeX
     "text.usetex": True,  # Enable LaTeX rendering
+    
 })
 
-colunms = ["new_confirmed", "new_deceased", "cumulative_confirmed", "cumulative_deceased"]
+colunms = ["new_confirmed", "new_deceased"]
 
 # plot the data for a specific region using the columns specified above
-region = "London Region"
-region_df = final_df[final_df["region"] == region]
-region_df = region_df.set_index("date")
-region_df = region_df[colunms]
-region_df.plot(subplots=True, figsize=(20, 10), title=region, xlabel="Date", ylabel="Count")
-plt.show()
+# region = "London Region"
+# region_df = final_df[final_df["region"] == region]
+# region_df = region_df.set_index("date")
+# region_df = region_df[colunms]
+# region_df.plot(subplots=True, title=region, xlabel="Date", ylabel="Count")
+# plt.show()
+
+
 
 
 # List of URLs
