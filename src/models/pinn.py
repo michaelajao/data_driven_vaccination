@@ -1,16 +1,24 @@
 import os
 import torch
-import torch.nn as nn
-import torch.optim as optim
+from torch import nn, optim
+import lightning as pl
+from pytorch_lightning.callbacks import ModelCheckpoint
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from tqdm import tqdm
+
 
 # Set random seed for reproducibility
-np.random.seed(42)
-torch.manual_seed(42)
+pl.seed_everything(42)
+
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
+# select all avbailable GPUs
+device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
 
 # Set the default style
 plt.style.use("seaborn-v0_8-white")
@@ -29,8 +37,6 @@ plt.rcParams.update(
         "legend.fontsize": "medium",
     }
 )
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load the data
 path = "../../data/raw/pickle/covid19_data.pkl"
@@ -63,3 +69,5 @@ test_percent = len(test) / total_sample * 100
 print(f"Train: {len(train)} samples ({train_percent:.2f}%)")
 print(f"Validation: {len(val)} samples ({val_percent:.2f}%)")
 print(f"Test: {len(test)} samples ({test_percent:.2f}%)")
+
+
