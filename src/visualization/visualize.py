@@ -3,7 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-plt.style.use('seaborn-v0_8-white')
+plt.style.use('seaborn-v0_8-whitegrid')
+# plt.style.available
 plt.rcParams.update({
     "lines.linewidth": 2,
     "font.family": "serif",
@@ -13,8 +14,8 @@ plt.rcParams.update({
     "figure.autolayout": True,
     "axes.spines.top": False,
     "axes.spines.right": False,
-    # "axes.grid": True,
-    # "grid.color": "0.75",
+    "axes.grid": True,
+    "grid.color": "0.75",
     "legend.fontsize": "medium",
     "legend.frameon": False,
     "legend.loc": "best",
@@ -23,9 +24,8 @@ plt.rcParams.update({
     "xtick.labelsize": 12,
     "ytick.labelsize": 12,
     "figure.dpi": 300
-    
 })
-
+plt.rcParams.keys()
 first_data = "../../data/interim/pickle/nhs_region_data.pkl"
 second_data = "../../data/raw/pickle/covid19_data.pkl"
 data_column = "date"
