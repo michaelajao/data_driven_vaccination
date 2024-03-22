@@ -2,9 +2,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 # runge-kutta method
-from scipy.integrate import odeint, solve_ivp
+from scipy.integrate import solve_ivp
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -240,11 +240,10 @@ class EarlyStopping:
             self.best_score = score
             self.counter = 0
             
-# Training function
 def train(model, t_tensor, SIR_tensor, epochs=1000, lr=0.001, N=None, beta=None, gamma=None):
     optimizer = optim.Adam(model.parameters(), lr=lr)
     scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=5)
-    early_stopping = EarlyStopping(patience=5, verbose=True)
+    early_stopping = EarlyStopping(patience=20, verbose=True)
     
     for epoch in range(epochs):
         model.train()
@@ -258,7 +257,6 @@ def train(model, t_tensor, SIR_tensor, epochs=1000, lr=0.001, N=None, beta=None,
         if epoch % 100 == 0:
             print(f"Epoch {epoch}, Loss: {loss.item():.4f}")
         
-        # Check early stopping
         early_stopping(loss)
         if early_stopping.early_stop:
             print("Early stopping")
@@ -266,66 +264,40 @@ def train(model, t_tensor, SIR_tensor, epochs=1000, lr=0.001, N=None, beta=None,
         
     print("Training finished")
 
+# Adjusted plot_results function to match your request format
+def plot_results(t, S, I, R, model, title):
+    model.eval()
+    with torch.no_grad():
+        predictions = model(t).cpu().numpy()
+    
+    t_np = t.cpu().detach().numpy().flatten()
+    fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+    
+    for ax, data, pred, label in zip(axs, [S, I, R], predictions.T, ['Susceptible', 'Infected', 'Recovered']):
+        ax.plot(t_np, data.cpu().detach().numpy().flatten(), label=f'{label}')
+        ax.plot(t_np, pred, linestyle='dashed', label=f'{label} (predicted)')
+        ax.set_title(f'{label}')
+        ax.set_xlabel('Time')
+        ax.set_ylabel('Proportion of Population')
+        ax.legend()
+    
+    plt.tight_layout()
+    plt.savefig(f"../../reports/figures/{title}.pdf")
+    plt.show()
+
+
 # Train the forward problem
-model_forward = SIRNet()
+model_forward = SIRNet( num_layers=5, hidden_neurons=32)
 model_forward.to(device)
 train(model_forward, t_data, SIR_tensor, epochs=10000, lr=0.0001, N=params["N"], beta=params["beta"], gamma=params["gamma"])
 
 # Train the inverse problem
-model_inverse = SIRNet(inverse=True, init_beta=0.2, init_gamma=0.05, num_layers=10, hidden_neurons=32)
+model_inverse = SIRNet(inverse=True, init_beta=0.2, init_gamma=0.05, num_layers=5, hidden_neurons=32)
 model_inverse.to(device)
 train(model_inverse, t_data, SIR_tensor, epochs=10000, lr=0.0001, N=params["N"])
 
-
-
-# Plot the results
-def plot_results(t, S, I, R, model, title):
-    # Preparing data
-    t_np = t.cpu().detach().numpy()  # Assuming t is a tensor that might require gradients
-    S_np = S.cpu().detach().numpy()
-    I_np = I.cpu().detach().numpy()
-    R_np = R.cpu().detach().numpy()
-    
-    # Evaluating the model to generate predictions
-    model.eval()
-    with torch.no_grad():
-        predictions = model(t).cpu().detach().numpy()  # Ensure to detach before converting to numpy
-
-    # Susceptible
-    plt.subplot(1, 3, 1)
-    plt.plot(t_np, S_np, label='Susceptible')
-    plt.plot(t_np, predictions[:, 0], label='Susceptible (predicted)', linestyle='dashed')
-    plt.title('Susceptible')
-    plt.xlabel('Time')
-    plt.ylabel('Proportion of Population')
-    plt.legend()
-
-    # Infected
-    plt.subplot(1, 3, 2)
-    plt.plot(t_np, I_np, label='Infected')
-    plt.plot(t_np, predictions[:, 1], label='Infected (predicted)', linestyle='dashed')
-    plt.title('Infected')
-    plt.xlabel('Time')
-    plt.ylabel('Proportion of Population')
-    plt.legend()
-
-    # Recovered
-    plt.subplot(1, 3, 3)
-    plt.plot(t_np, R_np, label='Recovered')
-    plt.plot(t_np, predictions[:, 2], label='Recovered (predicted)', linestyle='dashed')
-    plt.title('Recovered')
-    plt.xlabel('Time')
-    plt.ylabel('Proportion of Population')
-    plt.legend()
-
-    plt.tight_layout() 
-    plt.show()
-    
-    
-# Plot the forward model results
 plot_results(t_data, S_data, I_data, R_data, model_forward, "Forward Model Results")
 
-# Plot the inverse model results
 plot_results(t_data, S_data, I_data, R_data, model_inverse, "Inverse Model Results")
 
 # Extract the beta and gamma values
@@ -334,8 +306,6 @@ gamma_pred = model_inverse.gamma.item()
 print(f"Predicted beta: {beta_pred:.4f}, Predicted gamma: {gamma_pred:.4f}")
 
 # Evaluate the model with the predicted parameters for the inverse problem with MAE, MSE, and RMSE using Sklearn
-from sklearn.metrics import mean_absolute_error, mean_squared_error
-
 # Generate the predicted SIR data and convert the normalized data back to the original scale and evaluate the metrics
 with torch.no_grad():
     SIR_pred = model_forward(t_data).cpu().detach().numpy() * params["N"]
@@ -347,18 +317,61 @@ with torch.no_grad():
     
     print(f"MAE: {mae:.2f}, MSE: {mse:.2f}, RMSE: {rmse:.2f}")
     
-# Plot the predicted SIR data
-plt.plot(t_eval, SIR_true[:, 0], label="S(t)")
-plt.plot(t_eval, SIR_true[:, 1], label="I(t)")
-plt.plot(t_eval, SIR_true[:, 2], label="R(t)")
-plt.plot(t_eval, SIR_pred[:, 0], linestyle='dashed', label="S(t) (predicted)")
-plt.plot(t_eval, SIR_pred[:, 1], linestyle='dashed', label="I(t) (predicted)")
-plt.plot(t_eval, SIR_pred[:, 2], linestyle='dashed', label="R(t) (predicted)")
-plt.xlabel("Time (days)")
-plt.ylabel("Population")
-plt.title("Predicted SIR Data")
-plt.legend()
-plt.show()
+# # uncertainty quantification for the predicted beta and gamma values timevarying beta and gamma
+# def uncertainty_quantification(model, t_tensor, SIR_tensor, N, num_samples=100):
+#     beta_samples, gamma_samples = [], []
+#     for _ in range(num_samples):
+#         model.eval()
+#         with torch.no_grad():
+#             predictions = model(t_tensor).cpu().numpy()
+        
+#         S_pred, I_pred, R_pred = predictions[:, 0], predictions[:, 1], predictions[:, 2]
+#         S_t = np.gradient(S_pred, t_tensor.cpu().detach().numpy().flatten())
+#         I_t = np.gradient(I_pred, t_tensor.cpu().detach().numpy().flatten())
+#         R_t = np.gradient(R_pred, t_tensor.cpu().detach().numpy().flatten())
+        
+#         beta_samples.append((N * I_pred * S_t) / (S_pred * I_pred))
+#         gamma_samples.append(I_pred / R_pred)
+    
+#     beta_samples = np.array(beta_samples)
+#     gamma_samples = np.array(gamma_samples)
+#     return beta_samples, gamma_samples
 
+# # Extract the beta and gamma samples
+# beta_samples, gamma_samples = uncertainty_quantification(model_forward, t_data, SIR_tensor, params["N"])
 
+# # Plot the beta and gamma samples
+# fig, axs = plt.subplots(1, 2, figsize=(15, 5))
+# axs[0].plot(t_data.cpu().detach().numpy().flatten(), beta_samples.mean(axis=0), label="Mean")
+# axs[0].fill_between(
+#     t_data.cpu().detach().numpy().flatten(),
+#     np.percentile(beta_samples, 5, axis=0),
+#     np.percentile(beta_samples, 95, axis=0),
+#     color="gray",
+#     alpha=0.5,
+#     label="90% CI",
+# )
+# axs[0].set_title("Beta Samples")
+# axs[0].set_xlabel("Time")
+# axs[0].set_ylabel("Beta")
+# axs[0].legend()
 
+# axs[1].plot(t_data.cpu().detach().numpy().flatten(), gamma_samples.mean(axis=0), label="Mean")
+# axs[1].fill_between(
+#     t_data.cpu().detach().numpy().flatten(),
+#     np.percentile(gamma_samples, 5, axis=0),
+#     np.percentile(gamma_samples, 95, axis=0),
+#     color="gray",
+#     alpha=0.5,
+#     label="90% CI",
+# )
+# axs[1].set_title("Gamma Samples")
+# axs[1].set_xlabel("Time")
+# axs[1].set_ylabel("Gamma")
+# axs[1].legend()
+
+# plt.tight_layout()
+# plt.savefig("../../reports/figures/uncertainty_quantification.pdf")
+# plt.show()
+
+# Save the models
