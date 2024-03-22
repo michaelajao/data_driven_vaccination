@@ -317,61 +317,6 @@ with torch.no_grad():
     
     print(f"MAE: {mae:.2f}, MSE: {mse:.2f}, RMSE: {rmse:.2f}")
     
-# # uncertainty quantification for the predicted beta and gamma values timevarying beta and gamma
-# def uncertainty_quantification(model, t_tensor, SIR_tensor, N, num_samples=100):
-#     beta_samples, gamma_samples = [], []
-#     for _ in range(num_samples):
-#         model.eval()
-#         with torch.no_grad():
-#             predictions = model(t_tensor).cpu().numpy()
-        
-#         S_pred, I_pred, R_pred = predictions[:, 0], predictions[:, 1], predictions[:, 2]
-#         S_t = np.gradient(S_pred, t_tensor.cpu().detach().numpy().flatten())
-#         I_t = np.gradient(I_pred, t_tensor.cpu().detach().numpy().flatten())
-#         R_t = np.gradient(R_pred, t_tensor.cpu().detach().numpy().flatten())
-        
-#         beta_samples.append((N * I_pred * S_t) / (S_pred * I_pred))
-#         gamma_samples.append(I_pred / R_pred)
+    # Plot the predicted SIR data
+    plot_results(t_data, S_data, I_data, R_data, model_forward, "Predicted SIR Data")
     
-#     beta_samples = np.array(beta_samples)
-#     gamma_samples = np.array(gamma_samples)
-#     return beta_samples, gamma_samples
-
-# # Extract the beta and gamma samples
-# beta_samples, gamma_samples = uncertainty_quantification(model_forward, t_data, SIR_tensor, params["N"])
-
-# # Plot the beta and gamma samples
-# fig, axs = plt.subplots(1, 2, figsize=(15, 5))
-# axs[0].plot(t_data.cpu().detach().numpy().flatten(), beta_samples.mean(axis=0), label="Mean")
-# axs[0].fill_between(
-#     t_data.cpu().detach().numpy().flatten(),
-#     np.percentile(beta_samples, 5, axis=0),
-#     np.percentile(beta_samples, 95, axis=0),
-#     color="gray",
-#     alpha=0.5,
-#     label="90% CI",
-# )
-# axs[0].set_title("Beta Samples")
-# axs[0].set_xlabel("Time")
-# axs[0].set_ylabel("Beta")
-# axs[0].legend()
-
-# axs[1].plot(t_data.cpu().detach().numpy().flatten(), gamma_samples.mean(axis=0), label="Mean")
-# axs[1].fill_between(
-#     t_data.cpu().detach().numpy().flatten(),
-#     np.percentile(gamma_samples, 5, axis=0),
-#     np.percentile(gamma_samples, 95, axis=0),
-#     color="gray",
-#     alpha=0.5,
-#     label="90% CI",
-# )
-# axs[1].set_title("Gamma Samples")
-# axs[1].set_xlabel("Time")
-# axs[1].set_ylabel("Gamma")
-# axs[1].legend()
-
-# plt.tight_layout()
-# plt.savefig("../../reports/figures/uncertainty_quantification.pdf")
-# plt.show()
-
-# Save the models
