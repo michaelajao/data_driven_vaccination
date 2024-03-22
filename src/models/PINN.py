@@ -120,6 +120,7 @@ plt.xlabel("Time (days)")
 plt.ylabel("Proportion of Population")
 plt.title("Synthetic SAIRD Data")
 plt.legend()
+plt.savefig("../../reports/figures/saird_data.pdf")
 plt.show()
 
 # Extract SIR data from SAIRD solution
@@ -271,7 +272,7 @@ model_forward.to(device)
 train(model_forward, t_data, SIR_tensor, epochs=10000, lr=0.0001, N=params["N"], beta=params["beta"], gamma=params["gamma"])
 
 # Train the inverse problem
-model_inverse = SIRNet(inverse=True, init_beta=0.2, init_gamma=0.05)
+model_inverse = SIRNet(inverse=True, init_beta=0.2, init_gamma=0.05, num_layers=10, hidden_neurons=32)
 model_inverse.to(device)
 train(model_inverse, t_data, SIR_tensor, epochs=10000, lr=0.0001, N=params["N"])
 
@@ -335,15 +336,29 @@ print(f"Predicted beta: {beta_pred:.4f}, Predicted gamma: {gamma_pred:.4f}")
 # Evaluate the model with the predicted parameters for the inverse problem with MAE, MSE, and RMSE using Sklearn
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-# Generate the predicted SIR data
-model_inverse.eval()
+# Generate the predicted SIR data and convert the normalized data back to the original scale and evaluate the metrics
 with torch.no_grad():
-    SIR_pred = model_inverse(t_data).cpu().detach().numpy()
+    SIR_pred = model_forward(t_data).cpu().detach().numpy() * params["N"]
+    SIR_true = SIR_tensor.cpu().detach().numpy() * params["N"]
     
-# Calculate the metrics
-SIR_true = SIR_tensor.cpu().detach().numpy()
-mae = mean_absolute_error(SIR_true, SIR_pred)
-mse = mean_squared_error(SIR_true, SIR_pred)
-rmse = np.sqrt(mse)
-print(f"MAE: {mae:.4f}, MSE: {mse:.4f}, RMSE: {rmse:.4f}")
+    mae = mean_absolute_error(SIR_true, SIR_pred)
+    mse = mean_squared_error(SIR_true, SIR_pred)
+    rmse = np.sqrt(mse)
+    
+    print(f"MAE: {mae:.2f}, MSE: {mse:.2f}, RMSE: {rmse:.2f}")
+    
+# Plot the predicted SIR data
+plt.plot(t_eval, SIR_true[:, 0], label="S(t)")
+plt.plot(t_eval, SIR_true[:, 1], label="I(t)")
+plt.plot(t_eval, SIR_true[:, 2], label="R(t)")
+plt.plot(t_eval, SIR_pred[:, 0], linestyle='dashed', label="S(t) (predicted)")
+plt.plot(t_eval, SIR_pred[:, 1], linestyle='dashed', label="I(t) (predicted)")
+plt.plot(t_eval, SIR_pred[:, 2], linestyle='dashed', label="R(t) (predicted)")
+plt.xlabel("Time (days)")
+plt.ylabel("Population")
+plt.title("Predicted SIR Data")
+plt.legend()
+plt.show()
+
+
 
