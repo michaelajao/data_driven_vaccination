@@ -3,28 +3,31 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-plt.style.use('seaborn-v0_8-whitegrid')
+# plt.style.use('seaborn-v0_8-whitegrid')
 # plt.style.available
 plt.rcParams.update({
-    "lines.linewidth": 2,
     "font.family": "serif",
-    "axes.titlesize": 20,
+    "figure.facecolor": "white",
+    "axes.facecolor": "white",
+    "axes.titlesize": 26,
     "axes.labelsize": 12,
     "figure.figsize": [15, 8],
     "figure.autolayout": True,
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "axes.grid": True,
-    "grid.color": "0.75",
     "legend.fontsize": "medium",
     "legend.frameon": False,
     "legend.loc": "best",
+    "lines.linewidth": 2.5,
+    "lines.markersize": 10,
     "font.size": 14,
-    "font.sans-serif": ["Helvetica"],
     "xtick.labelsize": 12,
     "ytick.labelsize": 12,
-    "figure.dpi": 300
+    "figure.dpi": 300,
+    "savefig.dpi": 300,
+    "savefig.format": "pdf",
+    "savefig.bbox": "tight",
+    
 })
+
 plt.rcParams.keys()
 first_data = "../../data/interim/pickle/nhs_region_data.pkl"
 second_data = "../../data/raw/pickle/covid19_data.pkl"
@@ -60,7 +63,7 @@ for column in colunms:
     plt.ylabel(f"{column.replace('_', ' ').title()}")
     plt.legend(loc="upper right")
     plt.tight_layout()
-    plt.savefig(f"../../reports/figures/{column}_over_time_by_nhs_region.png")
+    plt.savefig(f"../../reports/figures/{column}_over_time_by_nhs_region.pdf")
     plt.show()
 
 columns = ["covidOccupiedMVBeds", "hospitalCases", "newAdmissions"]
@@ -77,7 +80,7 @@ for column in columns:
     plt.ylabel(f"{column.replace('_', ' ').title()}")
     plt.legend(loc="upper right")
     plt.tight_layout()
-    plt.savefig(f"../../reports/figures/{column}_over_time_by_nhs_region.png")
+    plt.savefig(f"../../reports/figures/{column}_over_time_by_nhs_region.pdf")
     plt.show()
 
 pivot_ICU_data = data1.pivot_table(index="date", columns="areaName", values="covidOccupiedMVBeds", aggfunc=np.sum)
@@ -91,7 +94,7 @@ plt.ylabel("Date")
 plt.xticks(rotation=45)
 plt.yticks(np.arange(0, len(pivot_ICU_data.index), step=max(1, len(pivot_ICU_data.index)//10)), pivot_ICU_data.index.strftime("%Y-%m-%d")[::max(1, len(pivot_ICU_data.index)//10)], rotation=0)
 plt.tight_layout()
-plt.savefig(f"../../reports/figures/covid-19_icu_hospitalisation_heatmap.png")
+plt.savefig(f"../../reports/figures/covid-19_icu_hospitalisation_heatmap.pdf")
 plt.show()
 
 pivot_hospital_cases_data = data1.pivot_table(index="date", columns="areaName", values="hospitalCases", aggfunc=np.sum)
