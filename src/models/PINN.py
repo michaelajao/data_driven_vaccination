@@ -143,20 +143,17 @@ t_data.requires_grad = True
 
 # SIR Neural Network Model
 class SIRNet(nn.Module):
-    def __init__(self, inverse=False, init_beta=None, init_gamma=None, retrain_seed=42):
+    def __init__(self, inverse=False, init_beta=None, init_gamma=None, retrain_seed=42, num_layers=4, hidden_neurons=20):
         super(SIRNet, self).__init__()
         self.retrain_seed = retrain_seed
-        self.net = nn.Sequential(
-            nn.Linear(1, 20),
-            nn.Tanh(),
-            nn.Linear(20, 20),
-            nn.Tanh(),
-            nn.Linear(20, 20),
-            nn.Tanh(),
-            nn.Linear(20, 20),
-            nn.Tanh(),
-            nn.Linear(20, 3)
-        )
+        layers = []
+        layers.append(nn.Linear(1, hidden_neurons))
+        layers.append(nn.Tanh())
+        for _ in range(num_layers - 1):
+            layers.append(nn.Linear(hidden_neurons, hidden_neurons))
+            layers.append(nn.Tanh())
+        layers.append(nn.Linear(hidden_neurons, 3))
+        self.net = nn.Sequential(*layers)
 
         # Adjustments for inverse model with customizable initial values
         if inverse:
@@ -245,7 +242,7 @@ class EarlyStopping:
 # Training function
 def train(model, t_tensor, SIR_tensor, epochs=1000, lr=0.001, N=None, beta=None, gamma=None):
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=5,)
+    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=5)
     early_stopping = EarlyStopping(patience=5, verbose=True)
     
     for epoch in range(epochs):
@@ -269,14 +266,16 @@ def train(model, t_tensor, SIR_tensor, epochs=1000, lr=0.001, N=None, beta=None,
     print("Training finished")
 
 # Train the forward problem
-model_forward = SIRNet().to(device)
-print("Training Forward Model")
-train(model_forward, t_data, SIR_tensor, epochs=50000, lr=0.0001, N=params["N"], beta=params["beta"], gamma=params["gamma"])
+model_forward = SIRNet()
+model_forward.to(device)
+train(model_forward, t_data, SIR_tensor, epochs=10000, lr=0.0001, N=params["N"], beta=params["beta"], gamma=params["gamma"])
 
 # Train the inverse problem
-model_inverse = SIRNet(inverse=True, init_beta=0.1, init_gamma=0.01).to(device)
-print("\nTraining Inverse Model")
-train(model_inverse, t_data, SIR_tensor, epochs=50000, lr=0.0001, N=params["N"])
+model_inverse = SIRNet(inverse=True, init_beta=0.2, init_gamma=0.05)
+model_inverse.to(device)
+train(model_inverse, t_data, SIR_tensor, epochs=10000, lr=0.0001, N=params["N"])
+
+
 
 # Plot the results
 def plot_results(t, S, I, R, model, title):
@@ -347,17 +346,4 @@ mae = mean_absolute_error(SIR_true, SIR_pred)
 mse = mean_squared_error(SIR_true, SIR_pred)
 rmse = np.sqrt(mse)
 print(f"MAE: {mae:.4f}, MSE: {mse:.4f}, RMSE: {rmse:.4f}")
-
-# Plot the predicted SIR data
-plt.plot(t_data.cpu().detach().numpy(), SIR_true[:, 0], label="S(t) True")
-plt.plot(t_data.cpu().detach().numpy(), SIR_pred[:, 0], label="S(t) Predicted", linestyle='dashed')
-plt.plot(t_data.cpu().detach().numpy(), SIR_true[:, 1], label="I(t) True")
-plt.plot(t_data.cpu().detach().numpy(), SIR_pred[:, 1], label="I(t) Predicted", linestyle='dashed')
-plt.plot(t_data.cpu().detach().numpy(), SIR_true[:, 2], label="R(t) True")
-plt.plot(t_data.cpu().detach().numpy(), SIR_pred[:, 2], label="R(t) Predicted", linestyle='dashed')
-plt.xlabel("Time")
-plt.ylabel("Proportion of Population")
-plt.title("Predicted SIR Data")
-plt.legend()
-plt.show()
 
