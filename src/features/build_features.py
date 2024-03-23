@@ -46,3 +46,13 @@ os.makedirs("../../data/processed", exist_ok=True)
 # save the merged data
 merged_data.to_pickle("../../data/processed/merged_nhs_covid_data.pkl")
 merged_data.to_csv("../../data/processed/merged_nhs_covid_data.csv")
+
+# Aggregating the data to make an England wide data for all the columns
+# only the numerical columns are aggregated
+england_data = merged_data.groupby("date").sum().reset_index().drop(columns=["latitude", "longitude", "areaCode", "areaName", "epi_week"], axis=1)
+
+england_data["areaName"] = "England"
+
+# save the england data
+england_data.to_pickle("../../data/processed/england_data.pkl")
+england_data.to_csv("../../data/processed/england_data.csv")

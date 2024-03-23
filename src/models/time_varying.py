@@ -68,7 +68,6 @@ plt.rcParams.update({
     "ytick.direction": "in",  # Ticks inside the plot
 })
 
-
 # Set random seed for reproducibility
 torch.manual_seed(42)
 if torch.cuda.is_available():
@@ -125,19 +124,6 @@ saird_solution = solve_ivp(
     method="RK45",
 )
 
-# Plot the SAIRD data
-plt.plot(saird_solution.t, saird_solution.y[0], label="S(t)")
-plt.plot(saird_solution.t, saird_solution.y[1], label="A(t)")
-plt.plot(saird_solution.t, saird_solution.y[2], label="I(t)")
-plt.plot(saird_solution.t, saird_solution.y[3], label="R(t)")
-plt.plot(saird_solution.t, saird_solution.y[4], label="D(t)")
-plt.xlabel("Time (days)")
-plt.ylabel("Proportion of Population")
-plt.title("Synthetic SAIRD Data")
-plt.legend()
-plt.savefig("../../reports/figures/saird_data.pdf")
-plt.show()
-
 # Extract SIR data from SAIRD solution
 S_saird, A_saird, I_saird, R_saird, D_saird = saird_solution.y
 S_sir = S_saird + A_saird  # S compartment for SIR
@@ -157,46 +143,40 @@ R_data = torch.tensor(R_sir, dtype=torch.float32).reshape(-1, 1).to(device)
 SIR_tensor = torch.cat([S_data, I_data, R_data], 1)
 t_data.requires_grad = True
 
-# SIR Neural Network Model
-class SIRNet(nn.Module):
-    def __init__(self, inverse=False, init_beta=None, init_gamma=None, retrain_seed=42, num_layers=4, hidden_neurons=20):
-        super(SIRNet, self).__init__()
-        self.retrain_seed = retrain_seed
-        layers = []
-        layers.append(nn.Linear(1, hidden_neurons))
-        layers.append(nn.Tanh())
+
+class ParamNet(nn.Module):
+    def __init__(self, output_size=2, num_layers=3, hidden_neurons=20):
+        super(ParamNet, self).__init__()
+        layers = [nn.Linear(1, hidden_neurons), nn.ReLU()]
         for _ in range(num_layers - 1):
-            layers.append(nn.Linear(hidden_neurons, hidden_neurons))
-            layers.append(nn.Tanh())
-        layers.append(nn.Linear(hidden_neurons, 3))
+            layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.ReLU()])
+        layers.append(nn.Linear(hidden_neurons, output_size))
         self.net = nn.Sequential(*layers)
 
-        # Adjustments for inverse model with customizable initial values
-        if inverse:
-            self._beta = nn.Parameter(torch.tensor([init_beta if init_beta is not None else torch.rand(1)], device=device), requires_grad=True)
-            self._gamma = nn.Parameter(torch.tensor([init_gamma if init_gamma is not None else torch.rand(1)], device=device), requires_grad=True)
-        else:
-            self._beta = None
-            self._gamma = None
+    def forward(self, t):
+        return self.net(t)
 
-        # Initialize the network weights
+    def get_params(self, t):
+        raw_params = self.forward(t)
+        beta = torch.sigmoid(raw_params[:, 0]) * 0.9 + 0.1
+        gamma = torch.sigmoid(raw_params[:, 1]) * 0.09 + 0.01
+        return beta, gamma
+
+
+class SIRNet(nn.Module):
+    def __init__(self, num_layers=3, hidden_neurons=20):
+        super(SIRNet, self).__init__()
+        self.retrain_seed = 42  # Set the retrain_seed for reproducibility
+        layers = [nn.Linear(1, hidden_neurons), nn.Tanh()]
+        for _ in range(num_layers - 1):
+            layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
+        layers.append(nn.Linear(hidden_neurons, 3))  # Output: S, I, R
+        self.net = nn.Sequential(*layers)
         self.init_xavier()
 
     def forward(self, t):
         return self.net(t)
 
-    # Getter for beta to be between 0.1 and 1.0
-    @property
-    def beta(self):
-        return torch.sigmoid(self._beta) * 0.9 + 0.1 if self._beta is not None else None
-
-    # for gamma to be between 0.01 and 0.1
-    @property
-    def gamma(self):
-        return torch.sigmoid(self._gamma) * 0.09 + 0.01 if self._gamma is not None else None
-    
-
-    # Initialize the neural network with Xavier Initialization
     def init_xavier(self):
         torch.manual_seed(self.retrain_seed)
 
@@ -206,28 +186,35 @@ class SIRNet(nn.Module):
                 nn.init.xavier_uniform_(m.weight, gain=g)
                 if m.bias is not None:
                     m.bias.data.fill_(0)
-
+                    
         self.apply(init_weights)
 
 
-# loss function for both forward and inverse problems
-def sir_loss(model, model_output, SIR_tensor, t_tensor, N, beta=None, gamma=None):
+def compute_sir_derivatives(S, I, R, beta, gamma, N):
+    dSdt = -(beta * S * I) / N
+    dIdt = (beta * S * I) / N - gamma * I
+    dRdt = gamma * I
+    return dSdt, dIdt, dRdt
+
+def enhanced_sir_loss(SIR_tensor, model_output, beta_pred, gamma_pred, t_tensor, N):
     S_pred, I_pred, R_pred = model_output[:, 0], model_output[:, 1], model_output[:, 2]
+    S_actual, I_actual, R_actual = SIR_tensor[:, 0], SIR_tensor[:, 1], SIR_tensor[:, 2]
     
+    # Calculate the predicted derivatives
     S_t = torch.autograd.grad(S_pred, t_tensor, torch.ones_like(S_pred), create_graph=True)[0]
     I_t = torch.autograd.grad(I_pred, t_tensor, torch.ones_like(I_pred), create_graph=True)[0]
     R_t = torch.autograd.grad(R_pred, t_tensor, torch.ones_like(R_pred), create_graph=True)[0]
-
-    if beta is None:  # Use model's parameters for inverse problem
-        beta, gamma = model.beta, model.gamma
-
-    dSdt = -(beta * S_pred * I_pred) / N
-    dIdt = (beta * S_pred * I_pred) / N - gamma * I_pred
-    dRdt = gamma * I_pred
-
-    loss = torch.mean((S_t - dSdt) ** 2) + torch.mean((I_t - dIdt) ** 2) + torch.mean((R_t - dRdt) ** 2)
-    loss += torch.mean((model_output - SIR_tensor) ** 2)  # Data fitting loss
-    return loss
+    
+    # Calculate the theoretical derivatives based on the SIR model
+    dSdt_pred, dIdt_pred, dRdt_pred = compute_sir_derivatives(S_pred, I_pred, R_pred, beta_pred, gamma_pred, N)
+    
+    # Compute loss based on the difference between actual and predicted S, I, R
+    fitting_loss = torch.mean((S_pred - S_actual) ** 2) + torch.mean((I_pred - I_actual) ** 2) + torch.mean((R_pred - R_actual) ** 2)
+    
+    # Compute loss based on the difference between the derivatives
+    derivative_loss = torch.mean((S_t - dSdt_pred) ** 2) + torch.mean((I_t - dIdt_pred) ** 2) + torch.mean((R_t - dRdt_pred) ** 2)
+    
+    return fitting_loss + derivative_loss
 
 # Early stopping class
 class EarlyStopping:
@@ -255,119 +242,161 @@ class EarlyStopping:
             self.best_score = score
             self.counter = 0
             
-def train(model, t_tensor, SIR_tensor, epochs=1000, lr=0.001, N=None, beta=None, gamma=None):
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=5)
+    
+# Training function
+def train_models(param_model, sir_model, t_data, SIR_tensor, epochs, lr, N):
+    param_optimizer = optim.Adam(param_model.parameters(), lr=lr)
+    sir_optimizer = optim.Adam(sir_model.parameters(), lr=lr)
     early_stopping = EarlyStopping(patience=10, verbose=True)
     
     losses = []
     
     for epoch in range(epochs):
-        model.train()
-        optimizer.zero_grad()
+        param_model.train()
+        sir_model.train()
         
-        # Forward pass
-        model_output = model(t_tensor)
+        # Forward pass: Predict parameters and SIR values
+        beta_pred, gamma_pred = param_model.get_params(t_data)
+        sir_output = sir_model(t_data)
         
-        # Loss calculation
-        loss = sir_loss(model, model_output, SIR_tensor, t_tensor, N, beta, gamma)
+        # Compute the loss using the enhanced loss function
+        loss = enhanced_sir_loss(SIR_tensor, sir_output, beta_pred, gamma_pred, t_data, N)
         
-        # Backward pass and optimization
+        # Backward pass: Optimize both models
+        param_optimizer.zero_grad()
+        sir_optimizer.zero_grad()
         loss.backward()
-        optimizer.step()
-        scheduler.step(loss)
+        param_optimizer.step()
+        sir_optimizer.step()
         
         # append the loss
         losses.append(loss.item())
         
+        # Print the loss every 100 epochs
         if epoch % 100 == 0:
             print(f"Epoch {epoch}, Loss: {loss.item():.4f}")
         
-        early_stopping(loss)
-        if early_stopping.early_stop:
-            print("Early stopping")
+        # Check for early stopping
+        if early_stopping(loss):
+            print("Early stopping triggered.")
             
-            #save the best model
+            # save the models
             torch.save({
                 'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict(),
+                'param_model_state_dict': param_model.state_dict(),
+                'sir_model_state_dict': sir_model.state_dict(),
+                'param_optimizer_state_dict': param_optimizer.state_dict(),
+                'sir_optimizer_state_dict': sir_optimizer.state_dict(),
                 'loss': loss,
-            }, f"../../models/{model.__class__.__name__}.pt")
+            }, "../../models/time_varying_sir_checkpoint.pth")
             print("Model saved")
             break
         
-    print("Training finished")
-    
     return losses
-
-# Adjusted plot_results function to match your request format
-def plot_results(t, S, I, R, model, title):
-    model.eval()
-    with torch.no_grad():
-        predictions = model(t).cpu().numpy()
     
-    t_np = t.cpu().detach().numpy().flatten()
+
+
+# Plotting functions
+def plot_SIR_results_subplots(t_data, SIR_tensor, sir_model, title):
+    with torch.no_grad():
+        sir_output = sir_model(t_data)
+    
+    t_np = t_data.cpu().detach().numpy().flatten()
+    S_pred, I_pred, R_pred = sir_output[:, 0].cpu().numpy(), sir_output[:, 1].cpu().numpy(), sir_output[:, 2].cpu().numpy()
+    S_actual, I_actual, R_actual = SIR_tensor[:, 0].cpu().numpy(), SIR_tensor[:, 1].cpu().numpy(), SIR_tensor[:, 2].cpu().numpy()
+    
     fig, axs = plt.subplots(1, 3, figsize=(12, 6))
     
-    for ax, data, pred, label in zip(axs, [S, I, R], predictions.T, ['Susceptible', 'Infected', 'Recovered']):
-        ax.plot(t_np, data.cpu().detach().numpy().flatten(), label=f'{label}')
-        ax.plot(t_np, pred, linestyle='dashed', label=f'{label} (predicted)')
-        ax.set_title(f'{label}')
-        ax.set_xlabel('Time')
-        ax.set_ylabel('Proportion of Population')
-        ax.legend()
+    axs[0].plot(t_np, S_actual, label='S (actual)', color='blue')
+    axs[0].plot(t_np, S_pred, '--', label='S (predicted)', color='skyblue')
+    axs[0].set_title('Susceptible')
+    axs[0].set_ylabel('Proportion of Population')
+    axs[0].set_xlabel('Days')
+    axs[0].legend()
     
+    axs[1].plot(t_np, I_actual, label='I (actual)', color='red')
+    axs[1].plot(t_np, I_pred, '--', label='I (predicted)', color='salmon')
+    axs[1].set_title('Infected')
+    axs[1].set_xlabel('Days')
+    axs[1].set_ylabel('Proportion of Population')
+    axs[1].legend()
+    
+    axs[2].plot(t_np, R_actual, label='R (actual)', color='green')
+    axs[2].plot(t_np, R_pred, '--', label='R (predicted)', color='lightgreen')
+    axs[2].set_title('Recovered')
+    axs[2].set_xlabel('Days')
+    axs[2].set_ylabel('Proportion of Population')
+    axs[2].legend()
+    
+    # plt.suptitle(f'{title} - SIR Predictions')
     plt.tight_layout()
-    plt.savefig(f"../../reports/figures/{title}.pdf")
+    plt.savefig(f"../../reports/figures/{title}_SIR_subplots.pdf")
     plt.show()
+
     
-
-#function to plot the loss
-def plot_loss(losses, title):
-    plt.plot(losses)
-    plt.xlabel("Epochs")
-    plt.ylabel("Loss")
-    plt.title(f"{title} Loss")
-    plt.savefig(f"../../reports/figures/{title}_loss.pdf")
+    
+def plot_param_results_subplots(t_data, param_model, title):
+    with torch.no_grad():
+        beta_pred, gamma_pred = param_model.get_params(t_data)
+    
+    t_np = t_data.cpu().detach().numpy().flatten()
+    beta_np, gamma_np = beta_pred.cpu().numpy(), gamma_pred.cpu().numpy()
+    
+    fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+    
+    axs[0].plot(t_np, beta_np, label=r'$\beta(t)$', color='purple')
+    axs[0].set_title(r'Time-Varying $\beta(t)$')
+    axs[0].set_ylabel(r'$\beta(t)$')
+    axs[0].set_xlabel('Days')
+    axs[0].legend()
+    
+    axs[1].plot(t_np, gamma_np, label=r'$\gamma(t)$', color='orange')
+    axs[1].set_title(r'Time-Varying $\gamma(t)$')
+    axs[1].set_xlabel('Days')
+    axs[1].set_ylabel(r'$\gamma(t)$')
+    axs[1].legend()
+    
+    # plt.suptitle(f'{title} - Time-Varying Parameters')
+    plt.tight_layout()
+    plt.savefig(f"../../reports/figures/{title}_Params_subplots.pdf")
     plt.show()
 
 
+    
+# Initialize the models
+param_model = ParamNet(output_size=2, num_layers=5, hidden_neurons=32).to(device)
+sir_model = SIRNet(num_layers=5, hidden_neurons=32).to(device)
 
-# Train the forward problem
-model_forward = SIRNet(num_layers=5, hidden_neurons=32)
-model_forward.to(device)
-losses = train(model_forward, t_data, SIR_tensor, epochs=10000, lr=0.0001, N=params["N"], beta=params["beta"], gamma=params["gamma"])
-
-plot_results(t_data, S_data, I_data, R_data, model_forward, "Forward Model Results")
-plot_loss(losses, "Forward Model Loss")
-
-# Train the inverse problem
-model_inverse = SIRNet(inverse=True, init_beta=0.2, init_gamma=0.05, num_layers=5, hidden_neurons=32)
-model_inverse.to(device)
-losses = train(model_inverse, t_data, SIR_tensor, epochs=10000, lr=0.0001, N=params["N"])
-
-plot_results(t_data, S_data, I_data, R_data, model_inverse, "Inverse Model Results")
-plot_loss(losses, "Inverse Model Loss")
+# Train the models
+train_models(param_model, sir_model, t_data, SIR_tensor, epochs=10000, lr=0.001, N=params["N"])
 
 
+# Train the models and collect losses
+losses = train_models(param_model, sir_model, t_data, SIR_tensor, epochs=10000, lr=0.001, N=params["N"])
 
-# Extract the beta and gamma values
-beta_pred = model_inverse.beta.item()
-gamma_pred = model_inverse.gamma.item()
-print(f"Predicted beta: {beta_pred:.4f}, Predicted gamma: {gamma_pred:.4f}")
+# Plotting the losses
+plt.figure(figsize=(10, 5))
+plt.plot(losses, label='Training Loss')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.title('Training Loss Over Time')
+plt.legend()
+plt.show()
 
-# Evaluate the model with the predicted parameters for the inverse problem with MAE, MSE, and RMSE using Sklearn
-# Generate the predicted SIR data and convert the normalized data back to the original scale and evaluate the metrics
+# Plot the results
+plot_SIR_results_subplots(t_data, SIR_tensor, sir_model, "SIR Model Predictions")
+plot_param_results_subplots(t_data, param_model, "Parameter Dynamics")
+
+# plot the results for R0
 with torch.no_grad():
-    SIR_pred = model_forward(t_data).cpu().detach().numpy() * params["N"]
-    SIR_true = SIR_tensor.cpu().detach().numpy() * params["N"]
+    beta_pred, gamma_pred = param_model.get_params(t_data)
+    R_0 = beta_pred / gamma_pred
     
-    mae = mean_absolute_error(SIR_true, SIR_pred)
-    mse = mean_squared_error(SIR_true, SIR_pred)
-    rmse = np.sqrt(mse)
-    
-    print(f"MAE: {mae:.2f}, MSE: {mse:.2f}, RMSE: {rmse:.2f}")
-    
-    
+plt.plot(t_data.cpu().detach().numpy().flatten(), R_0.cpu().numpy(), label=r'$R_0(t)$', color='purple')
+plt.title(r'Time-Varying $R_0(t)$')
+plt.xlabel('Days')
+plt.ylabel(r'$R_0(t)$')
+plt.legend()
+plt.tight_layout()
+plt.savefig("../../reports/figures/time_varying_R0.pdf")
+plt.show()
