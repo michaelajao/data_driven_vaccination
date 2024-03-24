@@ -130,6 +130,18 @@ S_sir = S_saird + A_saird  # S compartment for SIR
 R_sir = R_saird + D_saird  # R compartment for SIR
 I_sir = I_saird
 
+# plot the SAIRD model
+plt.plot(t_eval, S_saird, label="S")
+plt.plot(t_eval, A_saird, label="A")
+plt.plot(t_eval, I_saird, label="I")
+plt.plot(t_eval, R_saird, label="R")
+plt.plot(t_eval, D_saird, label="D")
+plt.title("SAIRD Model")
+plt.xlabel("Days")
+plt.ylabel("Population")
+plt.tight_layout()
+plt.show()
+
 # normalize the data
 S_sir /= params["N"]
 I_sir /= params["N"]
