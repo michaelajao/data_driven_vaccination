@@ -8,7 +8,7 @@ from scipy.integrate import solve_ivp, odeint
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 # Set up matplotlib
 plt.rcParams.update({
     # Font settings for clarity and compatibility with academic publications
@@ -90,8 +90,8 @@ def sihcrd_model(t, y, params):
 
 
 # Time points (in days) for simulation
-t_span = (0, 160)  # Simulation period in days
-t_eval = np.linspace(t_span[0], t_span[1], 160)  # Time points to evaluate
+t_span = (0, 360)  # Simulation period in days
+t_eval = np.linspace(t_span[0], t_span[1], 360)  # Time points to evaluate
 
 # Integrate the SIHCRD equations over the time grid
 solution = solve_ivp(sihcrd_model, t_span, initial_conditions, args=(params,), t_eval=t_eval)
@@ -103,14 +103,14 @@ for i, label in enumerate(labels):
     plt.plot(solution.t, solution.y[i], label=label)
 
 plt.xlabel('Time (days)')
-plt.ylabel('Number of individuals')
+plt.ylabel('population')
 plt.legend()
 plt.title('SIHCRD Model Simulation for England')
 plt.show()
 
 
 
-def load_and_preprocess_data(filepath, recovery_period=16, rolling_window=7, start_date="2020-04-01"):
+def load_and_preprocess_data(filepath, recovery_period=21, rolling_window=7, start_date="2020-04-01"):
     """
     Load and preprocess the COVID-19 dataset for the SIHCRD model.
 
@@ -190,28 +190,43 @@ def split_time_series_data(df, train_size=0.7, val_size=0.15, test_size=0.15):
 
 data = load_and_preprocess_data("../../data/processed/england_data.csv", recovery_period=21, rolling_window=7, start_date="2020-04-01")
 
-# Standardize the data
+
+
+# # Standardize the data
 # data["cumulative_confirmed"] = data["cumulative_confirmed"] / data["population"]
 # data["cumulative_deceased"] = data["cumulative_deceased"] / data["population"]
 # data["covidOccupiedMVBeds"] = data["covidOccupiedMVBeds"] / data["population"]
 # data["active_cases"] = data["active_cases"] / data["population"]
 # data["hospitalCases"] = data["hospitalCases"] / data["population"]
 # data["recovered"] = data["recovered"] / data["population"]
+# data["S(t)"] = data["S(t)"] / data["population"]
 
-# split data
-train_data, val_data, test_data = split_time_series_data(data, train_size=0.7, val_size=0.15, test_size=0.15)
+# # split data
+# train_data, val_data, test_data = split_time_series_data(data, train_size=0.7, val_size=0.15, test_size=0.15)
 
+# train_data = train_data.head(100)
+
+start_date = "2020-04-01"
+end_date = "2020-08-31"
+mask = (data["date"] >= start_date) & (data["date"] <= end_date)
+train_data = data.loc[mask]
+
+# Select the columns to scale
+columns_to_scale = ["cumulative_confirmed", "cumulative_deceased", "covidOccupiedMVBeds", "hospitalCases", "recovered", "active_cases", "S(t)"]
+
+transformer = MinMaxScaler()
+
+# Fit the scaler to the training data
+transformer.fit(train_data[columns_to_scale])
+
+# Transform the training data
+train_data[columns_to_scale] = transformer.transform(train_data[columns_to_scale])
 
 train_data = train_data[["days_since_start", "cumulative_confirmed", "cumulative_deceased", "covidOccupiedMVBeds", "hospitalCases", "recovered", "active_cases", "S(t)"]]
 
-plt.figure(figsize=(12, 6))
-plt.plot(train_data["days_since_start"], train_data["cumulative_confirmed"], label="Confirmed Cases")
+# Plot 
 
-plt.xlabel("Days Since Start")
-plt.ylabel("Proportion of Population")
-plt.title("Confirmed and Deceased Cases Over Time")
-plt.legend()
-plt.show()
+# Convert the training data to PyTorch tensors
 
 t_train = torch.tensor(train_data["days_since_start"].values, dtype=torch.float32).view(-1, 1).to(device).requires_grad_(True)
 S_train = torch.tensor(train_data["S(t)"].values, dtype=torch.float32).view(-1, 1).to(device)
@@ -224,9 +239,9 @@ C_train = torch.tensor(train_data["covidOccupiedMVBeds"].values, dtype=torch.flo
 # Combining all compartments to form the training dataset for the model
 SIHCRD_train = torch.cat([S_train, I_train, H_train, C_train, R_train, D_train], dim=1).to(device)
 
-
+# Define the neural network model with parameters estimation for the SIHCRD model
 class SIHCRDNet(nn.Module):
-    def __init__(self, inverse=False, init_params=None, retrain_seed=42, num_layers=4, hidden_neurons=20):
+    def __init__(self, inverse=False, init_beta=None, init_gamma=None, init_rho=None, init_eta=None, init_theta=None,retrain_seed=42, num_layers=4, hidden_neurons=20):
         super(SIHCRDNet, self).__init__()
         self.retrain_seed = retrain_seed
         self.inverse = inverse
@@ -235,55 +250,78 @@ class SIHCRDNet(nn.Module):
             layers += [nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()]
         layers.append(nn.Linear(hidden_neurons, 6))  # Output layer for S, I, H, C, R, D
         self.net = nn.Sequential(*layers)
+        
+        # Initialize the parameters for the inverse model
 
         if inverse:
-            # Assuming init_params is a dictionary with keys 'beta', 'gamma', 'rho', 'eta', 'theta'
-            default_values = torch.rand(5)
-            self.params = nn.Parameter(torch.tensor([init_params.get(k, default_values[i]) for i, k in enumerate(['beta', 'gamma', 'rho', 'eta', 'theta'])], device='cuda' if torch.cuda.is_available() else 'cpu'), requires_grad=True)
+            self._beta = nn.Parameter(torch.tensor([init_beta if init_beta is not None else torch.rand(1)], device=device), requires_grad=True)
+            self._gamma = nn.Parameter(torch.tensor([init_gamma if init_gamma is not None else torch.rand(1)], device=device), requires_grad=True)
+            self._rho = nn.Parameter(torch.tensor([init_rho if init_rho is not None else torch.rand(1)], device=device), requires_grad=True)
+            self._eta = nn.Parameter(torch.tensor([init_eta if init_eta is not None else torch.rand(1)], device=device), requires_grad=True)
+            self._theta = nn.Parameter(torch.tensor([init_theta if init_theta is not None else torch.rand(1)], device=device), requires_grad=True)
         else:
-            self.params = None
-
+            self._beta = None
+            self._gamma = None
+            self._rho = None
+            self._eta = None
+            self._theta = None
+            
+        # Initialize the network weights
         self.init_xavier()
-
-    def forward(self, t):
-        return self.net(t)
-
+        
+    def forward(self, x):
+        return self.net(x)
+    
+    # Getter for beta to be between 0.1 and 1.0
     @property
     def beta(self):
-        return torch.sigmoid(self.params[0]) * 0.9 + 0.1 if self.params is not None else None
-
+        return torch.sigmoid(self._beta) * 0.9 + 0.1 if self._beta is not None else None
+    
+    # for gamma to be between 0.01 and 0.1
     @property
     def gamma(self):
-        return torch.sigmoid(self.params[1]) * 0.09 + 0.01 if self.params is not None else None
-
+        return torch.sigmoid(self._gamma) * 0.09 + 0.01 if self._gamma is not None else None
+    
+    # for rho to be between 0.01 and 0.1
     @property
     def rho(self):
-        return torch.sigmoid(self.params[2]) * 0.09 + 0.01 if self.params is not None else None
-
+        return torch.sigmoid(self._rho) * 0.09 + 0.01 if self._rho is not None else None
+    
+    # for eta to be between 0.01 and 0.1
     @property
     def eta(self):
-        return torch.sigmoid(self.params[3]) * 0.09 + 0.01 if self.params is not None else None
-
+        return torch.sigmoid(self._eta) * 0.09 + 0.01 if self._eta is not None else None
+    
+    # for theta to be between 0.001 and 0.1
     @property
     def theta(self):
-        return torch.sigmoid(self.params[4]) * 0.09 + 0.01 if self.params is not None else None
-
+        return torch.sigmoid(self._theta) * 0.099 + 0.001 if self._theta is not None else None
+    
+    
+    # Initialize the neural network with Xavier Initialization
     def init_xavier(self):
         torch.manual_seed(self.retrain_seed)
 
         def init_weights(m):
             if isinstance(m, nn.Linear):
-                g = nn.init.calculate_gain('tanh')
+                g = nn.init.calculate_gain("tanh")
                 nn.init.xavier_uniform_(m.weight, gain=g)
                 if m.bias is not None:
                     m.bias.data.fill_(0)
-
         self.apply(init_weights)
-
                 
-                
+    # def init_params(self):
+    #     if self.inverse:
+    #         nn.init.uniform_(self._beta, 0.1, 1.0)
+    #         nn.init.uniform_(self._gamma, 0.01, 0.1)
+    #         nn.init.uniform_(self._rho, 0.01, 0.1)
+    #         nn.init.uniform_(self._eta, 0.01, 0.1)
+    #         nn.init.uniform_(self._theta, 0.001, 0.1)
+            
+            
+            
 # Define the loss function for the SIHCRD model
-def sihcrd_loss(model, model_output, SIHCRD_tensor, t_tensor, N, params=None):
+def sihcrd_loss(model, model_output, SIHCRD_tensor, t_tensor, N, beta=None, gamma=None, rho=None, eta=None, theta=None):
     S_pred, I_pred, H_pred, C_pred, R_pred, D_pred = model_output[:, 0], model_output[:, 1], model_output[:, 2], model_output[:, 3], model_output[:, 4], model_output[:, 5]
     
     # Derivatives of the compartments with respect to time
@@ -293,13 +331,10 @@ def sihcrd_loss(model, model_output, SIHCRD_tensor, t_tensor, N, params=None):
     C_t = torch.autograd.grad(C_pred, t_tensor, torch.ones_like(C_pred), create_graph=True)[0]
     R_t = torch.autograd.grad(R_pred, t_tensor, torch.ones_like(R_pred), create_graph=True)[0]
     D_t = torch.autograd.grad(D_pred, t_tensor, torch.ones_like(D_pred), create_graph=True)[0]
-
-    # Parameters for the model
-    if params is None:  # Use model's parameters if not provided
-        beta, gamma, rho, eta, theta = model.beta, model.gamma, model.rho, model.eta, model.theta
-    else:
-        beta, gamma, rho, eta, theta = params
     
+    beta, gamma, rho, eta, theta = model.beta, model.gamma, model.rho, model.eta, model.theta
+    
+    # Calculate the actual derivatives
     # Differential equations for the SIHCRD model
     dSdt = -(beta * S_pred * I_pred) / N
     dIdt = (beta * S_pred * I_pred) / N - gamma * I_pred - rho * I_pred
@@ -307,7 +342,7 @@ def sihcrd_loss(model, model_output, SIHCRD_tensor, t_tensor, N, params=None):
     dCdt = eta * H_pred - theta * C_pred - gamma * C_pred
     dRdt = gamma * (I_pred + H_pred + C_pred)
     dDdt = theta * C_pred
-
+    
     # Physics-informed loss: the difference between the predicted derivatives and the actual rate of change
     physics_loss = torch.mean((S_t - dSdt) ** 2) + torch.mean((I_t - dIdt) ** 2) + \
                    torch.mean((H_t - dHdt) ** 2) + torch.mean((C_t - dCdt) ** 2) + \
@@ -348,6 +383,116 @@ class EarlyStopping:
             self.val_loss_min = val_loss
             self.counter = 0
 
+def train_sihcrd(model, t_tensor, SIHCRD_tensor, epochs=1000, lr=0.001,  N=None, beta=None, gamma=None, rho=None, eta=None, theta=None):
+    # Setup optimizer and learning rate scheduler
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=10)
+    early_stopping = EarlyStopping(patience=5, verbose=True)
+    
+    losses = []
+    
+    for epoch in range(epochs):
+        model.train()
+        optimizer.zero_grad()
+        
+        # Forward pass
+        model_output = model(t_tensor)
+        
+        # Calculate the loss
+        loss = sihcrd_loss(model, model_output, SIHCRD_tensor, t_tensor, N, beta, gamma, rho, eta, theta)
+        
+        # Backward pass and optimization
+        loss.backward()
+        optimizer.step()
+        scheduler.step(loss)
+        
+        # append the loss
+        losses.append(loss.item())
+        
+        if epoch % 100 == 0:
+            print(f"Epoch {epoch}, Loss: {loss.item():.6f}")
+        
+        early_stopping(loss)
+        if early_stopping.early_stop:
+            print("Early stopping")
+            
+            #save the best model
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+                'loss': loss,
+            }, f"../../models/{model.__class__.__name__}.pt")
+            print("Model saved")
+            break
+        
+    print("Training finished")
+    
+    return losses
+
+# Train the inverse problem
+# model_inverse = SIRNet(inverse=True, init_beta=0.2, init_gamma=0.05, num_layers=5, hidden_neurons=32)
+# model_inverse.to(device)
+# losses = train(model_inverse, t_data, SIR_tensor, epochs=10000, lr=0.0001, N=params["N"])
+
+# Initialize the SIHCRD model
+model_sihcrd = SIHCRDNet(inverse=True, init_beta=0.1, init_gamma=0.01, init_rho=0.01, init_eta=0.01, init_theta=0.001, num_layers=10, hidden_neurons=32).to(device)
+
+# Train the SIHCRD model
+losses = train_sihcrd(model_sihcrd, t_train, SIHCRD_train, epochs=100000, lr=0.001, N=data["population"].iloc[0])
+
+#function to plot the loss
+def plot_loss(losses, title, save_path="../../reports/figures", show=True, figsize=(10, 6), log_scale=True, grid=True, save_format='pdf'):
+    """
+    Enhanced plotting function for the training loss of a model.
+
+    Args:
+    - losses (list or dict): A list of loss values per epoch, or a dictionary of lists for multiple loss components.
+    - title (str): Title for the plot.
+    - save_path (str, optional): Directory to save the plot. Default is "../../reports/figures".
+    - show (bool, optional): Whether to display the plot. Default is True.
+    - figsize (tuple, optional): Figure size. Default is (10, 6).
+    - log_scale (bool, optional): Whether to use a logarithmic scale for the y-axis. Default is True.
+    - grid (bool, optional): Whether to show grid lines. Default is True.
+    - save_format (str, optional): Format to save the plot (e.g., 'pdf', 'png'). Default is 'pdf'.
+
+    Returns:
+    None
+    """
+
+    plt.figure(figsize=figsize)
+    
+    if isinstance(losses, dict):
+        for label, loss_vals in losses.items():
+            plt.plot(loss_vals, label=label)
+    else:
+        plt.plot(losses, label="Loss")
+    
+    if log_scale:
+        plt.yscale('log')
+    
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+    plt.title(f"{title} Loss")
+    
+    if grid:
+        plt.grid(True, which="both", linestyle='--', linewidth=0.5)
+    
+    if isinstance(losses, dict):
+        plt.legend()
+    
+    # Ensure save path exists
+    os.makedirs(save_path, exist_ok=True)
+    save_file = os.path.join(save_path, f"{title}_loss.{save_format}")
+    plt.savefig(save_file)
+    print(f"Plot saved to: {save_file}")
+    
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
 
 def plot_sihcrd_results(t, S, I, H, C, R, D, model, title):
     model.eval()
@@ -373,59 +518,58 @@ def plot_sihcrd_results(t, S, I, H, C, R, D, model, title):
     plt.tight_layout()
     plt.savefig(f"../../reports/figures/{title}.pdf")
     plt.show()
-
-
-def train_sihcrd(model, t_tensor, SIHCRD_tensor, epochs=1000, lr=0.001, N=None, params=None):
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=5)
-    early_stopping = EarlyStopping(patience=10, verbose=True)
     
-    losses = []
     
-    for epoch in range(epochs):
-        model.train()
-        optimizer.zero_grad()
+# Plot the SIHCRD model results
+plot_sihcrd_results(t_train, S_train, I_train, H_train, C_train, R_train, D_train, model_sihcrd, "SIHCRD_Model_Predictions")
+
+plot_loss(losses, "SIHCRD_Model")
+
+def extract_parameters(model):
+    """Extract and print the beta and gamma values from the model."""
+    try:
+        beta_predicted = model.beta.item()
+        gamma_predicted = model.gamma.item()
+        rho_predicted = model.rho.item()
+        eta_predicted = model.eta.item()
+        theta_predicted = model.theta.item()
+        print(f"Predicted beta: {beta_predicted:.4f}, gamma: {gamma_predicted:.4f}, rho: {rho_predicted:.4f}, eta: {eta_predicted:.4f}, theta: {theta_predicted:.4f}")
+    except AttributeError:
+        print("Model does not have the required parameters.")
         
-        # Forward pass
-        model_output = model(t_tensor)
-        
-        # Loss calculation for the SIHCRD model
-        loss = sihcrd_loss(model, model_output, SIHCRD_tensor, t_tensor, N, params)
-        
-        # Backward pass and optimization
-        loss.backward()
-        optimizer.step()
-        scheduler.step(loss)
-        
-        # Append the loss
-        losses.append(loss.item())
-        
-        if epoch % 100 == 0:
-            print(f"Epoch {epoch}, Loss: {loss.item():.4f}")
-        
-        early_stopping(loss.item())
-        if early_stopping.early_stop:
-            print("Early stopping")
-            
-            # Save the best model
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict(),
-                'loss': loss,
-            }, f"../../models/{model.__class__.__name__}_SIHCRD.pt")
-            print("Model saved")
-            break
-        
-    print("Training finished")
+extract_parameters(model_sihcrd)
+
+def evaluate_model(model, t_tensor, SIR_tensor, transformer):
+    model.eval()
+    with torch.no_grad():
+        predictions = model(t_tensor).cpu().numpy()
     
-    return losses
+    # Inverse transform the data
+    predictions = transformer.inverse_transform(predictions)
+    SIR_data = transformer.inverse_transform(SIR_tensor.cpu().numpy())
+    
+    mae = mean_absolute_error(SIR_data, predictions)
+    mse = mean_squared_error(SIR_data, predictions)
+    rmse = np.sqrt(mse)
+    
+    print(f"MAE: {mae:.4f}, MSE: {mse:.4f}, RMSE: {rmse:.4f}")
+    return mae, mse, rmse
 
-# Initialize the SIHCRD model
-model = SIHCRDNet(inverse=False, init_params=params).to(device)
+mae, mse, rmse = evaluate_model(model_sihcrd, t_train, SIHCRD_train, transformer)
 
-# Training the SIHCRD model
-losses = train_sihcrd(model, t_train, SIHCRD_train, epochs=1000, lr=0.001, N=params["N"])
 
-# Plot the training loss
+# evaluate the model without transforming the data back to the original scale
+def evaluate_model(model, t_tensor, SIR_tensor):
+    model.eval()
+    with torch.no_grad():
+        predictions = model(t_tensor).cpu().numpy()
+        
+    mae = mean_absolute_error(SIR_tensor.cpu().numpy(), predictions)
+    mse = mean_squared_error(SIR_tensor.cpu().numpy(), predictions)
+    rmse = np.sqrt(mse)
+    
+    print(f"MAE: {mae:.4f}, MSE: {mse:.4f}, RMSE: {rmse:.4f}")
+    return mae, mse, rmse
+
+mae, mse, rmse = evaluate_model(model_sihcrd, t_train, SIHCRD_train)
+# plt.show()
