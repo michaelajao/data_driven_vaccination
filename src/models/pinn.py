@@ -333,6 +333,7 @@ def plot_results(t, S, I, R, model, title):
 
  # Adjust the layout
     plt.tight_layout()
+    plt.savefig(f"../../reports/figures/{title}.pdf")
     plt.show()
 
 # Plot results for the forward model

@@ -3,12 +3,11 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from sklearn.metrics import mean_absolute_error, mean_squared_error
-from sklearn.preprocessing import StandardScaler
-from scipy.integrate import solve_ivp, odeint
+from scipy.integrate import solve_ivp
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler
 # Set up matplotlib
 plt.rcParams.update({
     # Font settings for clarity and compatibility with academic publications
@@ -539,25 +538,6 @@ def extract_parameters(model):
         
 extract_parameters(model_sihcrd)
 
-def evaluate_model(model, t_tensor, SIR_tensor, transformer):
-    model.eval()
-    with torch.no_grad():
-        predictions = model(t_tensor).cpu().numpy()
-    
-    # Inverse transform the data
-    predictions = transformer.inverse_transform(predictions)
-    SIR_data = transformer.inverse_transform(SIR_tensor.cpu().numpy())
-    
-    mae = mean_absolute_error(SIR_data, predictions)
-    mse = mean_squared_error(SIR_data, predictions)
-    rmse = np.sqrt(mse)
-    
-    print(f"MAE: {mae:.4f}, MSE: {mse:.4f}, RMSE: {rmse:.4f}")
-    return mae, mse, rmse
-
-mae, mse, rmse = evaluate_model(model_sihcrd, t_train, SIHCRD_train, transformer)
-
-
 # evaluate the model without transforming the data back to the original scale
 def evaluate_model(model, t_tensor, SIR_tensor):
     model.eval()
@@ -571,5 +551,46 @@ def evaluate_model(model, t_tensor, SIR_tensor):
     print(f"MAE: {mae:.4f}, MSE: {mse:.4f}, RMSE: {rmse:.4f}")
     return mae, mse, rmse
 
-mae, mse, rmse = evaluate_model(model_sihcrd, t_train, SIHCRD_train)
+evaluate_model(model_sihcrd, t_train, SIHCRD_train)
+
+# # forecast the infected cases for the next 30 days
+# def forcast(model, t_tensor, SIR_tensor, days):
+    
+#     model.eval()
+#     with torch.no_grad():
+#         predictions = model(t_tensor).cpu().numpy()
+        
+#     # Extract the last time point
+#     t_last = t_tensor[-1].item()
+    
+#     # Generate future time points
+#     t_forecast = torch.arange(t_last + 1, t_last + days + 1, dtype=torch.float32).view(-1, 1).to(device)
+    
+#     # Forecast the future
+#     with torch.no_grad():
+#         forecast = model(t_forecast).cpu().numpy()
+        
+#     return forecast
+
+# forecast_days = 30
+
+# forecast_data = forcast(model_sihcrd, t_train, SIHCRD_train, forecast_days)
+
+# # Plot the forecasted data
+# plt.figure(figsize=(12, 8))
+# plt.plot(t_train.cpu().numpy(), SIHCRD_train[:, 1].cpu().numpy(), label="Active Cases (Training)")
+# plt.plot(t_train.cpu().numpy(), SIHCRD_train[:, 4].cpu().numpy(), label="Recovered (Training)")
+
+# # Forecasted data
+# plt.plot(np.arange(t_train[-1].item() + 1, t_train[-1].item() + forecast_days + 1), forecast_data[:, 1], linestyle='dashed', label="Active Cases (Forecast)")
+# plt.plot(np.arange(t_train[-1].item() + 1, t_train[-1].item() + forecast_days + 1), forecast_data[:, 4], linestyle='dashed', label="Recovered (Forecast)")
+
+# plt.xlabel("Days since start")
+# plt.ylabel("Population")
+# plt.title("Forecast of Active Cases and Recovered Individuals")
+# plt.legend()
+# plt.grid(True)
+# plt.tight_layout()
+# plt.savefig("../../reports/figures/forecast_sihcrd.pdf")
 # plt.show()
+

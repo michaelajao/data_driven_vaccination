@@ -166,4 +166,28 @@ plt.show()
 
 
 # plot england data with the lockdown periods
-england_data = 
+england_data = pd.read_pickle("../../data/processed/england_data.pkl")
+england_data["date"] = pd.to_datetime(england_data["date"])
+
+# Plotting
+plt.figure(figsize=(15, 8))
+
+# Plot new confirmed cases over time
+plt.plot(england_data['date'], england_data['new_confirmed'], label='New Confirmed Cases', color='blue')
+
+# Highlight the lockdown periods
+for start, end in lockdown_periods:
+    plt.axvspan(start, end, color='grey', alpha=0.3, label='Lockdown Periods' if start == '2020-03-23' else "")
+
+# Set the x-axis limits to focus on 2020 till the end of 2021
+plt.xlim(pd.Timestamp('2020-04-01'), pd.Timestamp('2021-12-31'))
+
+plt.title('New Confirmed Cases Over Time in England with Lockdown Periods (2020 - 2021)')
+plt.xlabel('Date')
+plt.ylabel('New Confirmed Cases')
+plt.legend()
+
+# Improve the layout and save the figure
+plt.tight_layout()
+plt.savefig("../../reports/figures/new_confirmed_cases_2020_2021_in_england_with_lockdown_periods.pdf")
+plt.show()

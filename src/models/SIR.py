@@ -13,6 +13,9 @@ from sklearn.preprocessing import MinMaxScaler
 # Set random seed for reproducibility
 np.random.seed(42)
 torch.manual_seed(42)
+if torch.cuda.is_available():
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 # Set the default style
 # plt.style.use("fivethirtyeight")
