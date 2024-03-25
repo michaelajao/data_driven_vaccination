@@ -189,8 +189,6 @@ def split_time_series_data(df, train_size=0.7, val_size=0.15, test_size=0.15):
 
 data = load_and_preprocess_data("../../data/processed/england_data.csv", recovery_period=21, rolling_window=7, start_date="2020-04-01")
 
-
-
 # # Standardize the data
 # data["cumulative_confirmed"] = data["cumulative_confirmed"] / data["population"]
 # data["cumulative_deceased"] = data["cumulative_deceased"] / data["population"]
@@ -385,8 +383,8 @@ class EarlyStopping:
 def train_sihcrd(model, t_tensor, SIHCRD_tensor, epochs=1000, lr=0.001,  N=None, beta=None, gamma=None, rho=None, eta=None, theta=None):
     # Setup optimizer and learning rate scheduler
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=10)
-    early_stopping = EarlyStopping(patience=5, verbose=True)
+    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.1, patience=100)
+    early_stopping = EarlyStopping(patience=20, verbose=True)
     
     losses = []
     
@@ -439,7 +437,7 @@ def train_sihcrd(model, t_tensor, SIHCRD_tensor, epochs=1000, lr=0.001,  N=None,
 model_sihcrd = SIHCRDNet(inverse=True, init_beta=0.1, init_gamma=0.01, init_rho=0.01, init_eta=0.01, init_theta=0.001, num_layers=10, hidden_neurons=32).to(device)
 
 # Train the SIHCRD model
-losses = train_sihcrd(model_sihcrd, t_train, SIHCRD_train, epochs=100000, lr=0.001, N=data["population"].iloc[0])
+losses = train_sihcrd(model_sihcrd, t_train, SIHCRD_train, epochs=50000, lr=0.001, N=data["population"].iloc[0])
 
 #function to plot the loss
 def plot_loss(losses, title, save_path="../../reports/figures", show=True, figsize=(10, 6), log_scale=True, grid=True, save_format='pdf'):

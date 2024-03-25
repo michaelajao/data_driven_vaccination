@@ -327,6 +327,7 @@ def plot_results(t, S, I, R, model, title):
 #function to plot the loss
 def plot_loss(losses, title):
     plt.plot(losses)
+    plt.yscale("log")
     plt.xlabel("Epochs")
     plt.ylabel("Loss")
     plt.title(f"{title} Loss")

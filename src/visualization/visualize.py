@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from matplotlib.patches import Patch
 import seaborn as sns
 
 # plt.style.use('seaborn-v0_8-whitegrid')
@@ -190,4 +192,46 @@ plt.legend()
 # Improve the layout and save the figure
 plt.tight_layout()
 plt.savefig("../../reports/figures/new_confirmed_cases_2020_2021_in_england_with_lockdown_periods.pdf")
+plt.show()
+
+# Plotting
+filtered_data = england_data[(england_data['date'] >= pd.Timestamp('2020-01-01')) & (england_data['date'] <= pd.Timestamp('2021-12-31'))]
+columns = ["new_confirmed", "new_deceased", "hospitalCases"]
+colors = ['blue', 'red', 'green']  # Colors for each plot
+
+
+fig, axs = plt.subplots(3, 1, figsize=(15, 15), sharex=True)
+
+lines = []  # To store line objects for the legend
+labels = []  # To store label names for the legend
+
+
+for column, color, ax in zip(columns, colors, axs):
+    line, = ax.plot(filtered_data['date'], filtered_data[column], label=column.replace('_', ' ').title(), color=color)
+    
+    lines.append(line)
+    
+    labels.append(column.replace('_', ' ').title())
+    
+    
+    for start, end in lockdown_periods:
+        ax.axvspan(pd.Timestamp(start), pd.Timestamp(end), color="grey", alpha=0.2)
+    ax.set_title(f"{column.replace('_', ' ').title()} Over Time in England")
+    ax.set_ylabel(f"{column.replace('_', ' ').title()}")
+    
+# Add lockdown period representation for the legend
+lockdown_patch = Patch(color='grey', alpha=0.2, label='Lockdown Periods')
+lines.append(lockdown_patch)
+labels.append('Lockdown Periods')
+
+
+# legends for just the labels
+fig.legend(lines, labels, loc='upper right', bbox_to_anchor=(0.9, 0.9))
+# Format the x-axis to show dates clearly
+axs[-1].xaxis.set_major_locator(mdates.MonthLocator())
+axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.savefig("../../reports/figures/cases_2020_2021_in_england_with_lockdown_periods.pdf")
+# Display the plot
 plt.show()
