@@ -574,7 +574,7 @@ def train_sihcrd(
 ):
     # Setup optimizer and learning rate scheduler
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = ReduceLROnPlateau(optimizer, "min", factor=0.1, patience=200)
+    # scheduler = ReduceLROnPlateau(optimizer, "min", factor=0.1, patience=1000)
     early_stopping = EarlyStopping(patience=20, verbose=True)
 
     losses = []
@@ -603,7 +603,7 @@ def train_sihcrd(
         # Backward pass and optimization
         loss.backward()
         optimizer.step()
-        scheduler.step(loss)
+        # scheduler.step(loss)
 
         # append the loss
         losses.append(loss.item())
@@ -621,7 +621,7 @@ def train_sihcrd(
                     "epoch": epoch,
                     "model_state_dict": model.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
-                    "scheduler_state_dict": scheduler.state_dict(),
+                    # "scheduler_state_dict": scheduler.state_dict(),
                     "loss": loss,
                 },
                 f"../../models/{model.__class__.__name__}.pt",
@@ -647,7 +647,7 @@ model_sihcrd = SIHCRDNet(
     init_rho=0.01,
     init_eta=0.01,
     init_theta=0.001,
-    num_layers=10,
+    num_layers=5,
     hidden_neurons=32,
 ).to(device)
 
