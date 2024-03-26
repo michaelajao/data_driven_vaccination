@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.optim.lr_scheduler import ReduceLROnPlateau, StepLR
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 # runge-kutta method
 from scipy.integrate import solve_ivp
@@ -257,8 +257,11 @@ class EarlyStopping:
             
 def train(model, t_tensor, SIR_tensor, epochs=1000, lr=0.001, N=None, beta=None, gamma=None):
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=5)
-    early_stopping = EarlyStopping(patience=10, verbose=True)
+    # scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=5)
+    scheduler = StepLR(
+        optimizer, step_size=50000, gamma=0.1
+    )
+    early_stopping = EarlyStopping(patience=1000, verbose=True)
     
     losses = []
     
@@ -280,8 +283,10 @@ def train(model, t_tensor, SIR_tensor, epochs=1000, lr=0.001, N=None, beta=None,
         # append the loss
         losses.append(loss.item())
         
-        if epoch % 100 == 0:
-            print(f"Epoch {epoch}, Loss: {loss.item():.4f}")
+        if (epoch + 1) % 100 == 0 or epoch == 0:
+            print(
+                f"Epoch [{epoch + 1}/{epochs}], Loss: {loss.item():.6f}, LR: {scheduler.get_last_lr()[0]}"
+            )  # Print the current learning rate
         
         early_stopping(loss)
         if early_stopping.early_stop:
@@ -326,11 +331,11 @@ def plot_results(t, S, I, R, model, title):
 
 #function to plot the loss
 def plot_loss(losses, title):
-    plt.plot(losses)
-    plt.yscale("log")
-    plt.xlabel("Epochs")
-    plt.ylabel("Loss")
+    plt.plot(np.arange(1, len(losses) + 1), np.log10(losses), label="Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Log10 Loss")
     plt.title(f"{title} Loss")
+    plt.legend()
     plt.savefig(f"../../reports/figures/{title}_loss.pdf")
     plt.show()
 
@@ -339,7 +344,7 @@ def plot_loss(losses, title):
 # Train the forward problem
 model_forward = SIRNet(num_layers=5, hidden_neurons=32)
 model_forward.to(device)
-losses = train(model_forward, t_data, SIR_tensor, epochs=10000, lr=0.0001, N=params["N"], beta=params["beta"], gamma=params["gamma"])
+losses = train(model_forward, t_data, SIR_tensor, epochs=100000, lr=0.001, N=params["N"], beta=params["beta"], gamma=params["gamma"])
 
 plot_results(t_data, S_data, I_data, R_data, model_forward, "Forward Model Results")
 plot_loss(losses, "Forward Model Loss")
@@ -347,7 +352,7 @@ plot_loss(losses, "Forward Model Loss")
 # Train the inverse problem
 model_inverse = SIRNet(inverse=True, init_beta=0.2, init_gamma=0.05, num_layers=5, hidden_neurons=32)
 model_inverse.to(device)
-losses = train(model_inverse, t_data, SIR_tensor, epochs=10000, lr=0.0001, N=params["N"])
+losses = train(model_inverse, t_data, SIR_tensor, epochs=100000, lr=0.001, N=params["N"])
 
 plot_results(t_data, S_data, I_data, R_data, model_inverse, "Inverse Model Results")
 plot_loss(losses, "Inverse Model Loss")
