@@ -5,6 +5,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 # runge-kutta method
 from scipy.integrate import solve_ivp
+from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -232,7 +233,7 @@ def enhanced_sir_loss(SIR_tensor, model_output, beta_pred, gamma_pred, t_tensor,
 # Early stopping class
 class EarlyStopping:
     """Early stops the training if validation loss doesn't improve after a given patience."""
-    def __init__(self, patience=3, verbose=False, delta=0):
+    def __init__(self, patience=5, verbose=False, delta=0):
         self.patience = patience
         self.verbose = verbose
         self.delta = delta
@@ -260,11 +261,11 @@ class EarlyStopping:
 def train_models(param_model, sir_model, t_data, SIR_tensor, epochs, lr, N):
     param_optimizer = optim.Adam(param_model.parameters(), lr=lr)
     sir_optimizer = optim.Adam(sir_model.parameters(), lr=lr)
-    early_stopping = EarlyStopping(patience=10, verbose=True)
+    early_stopping = EarlyStopping(patience=10, verbose=False)
     
     losses = []
     
-    for epoch in range(epochs):
+    for epoch in tqdm(range(epochs), desc="Training", unit="epoch", position=0, leave=True):
         param_model.train()
         sir_model.train()
         
@@ -287,7 +288,7 @@ def train_models(param_model, sir_model, t_data, SIR_tensor, epochs, lr, N):
         
         # Print the loss every 100 epochs
         if epoch % 100 == 0:
-            print(f"Epoch {epoch}, Loss: {loss.item():.4f}")
+            print(f"Epoch {epoch}, Loss: {loss.item():.6f}")
         
         # Check for early stopping
         if early_stopping(loss):
@@ -381,25 +382,28 @@ param_model = ParamNet(output_size=2, num_layers=5, hidden_neurons=32).to(device
 sir_model = SIRNet(num_layers=5, hidden_neurons=32).to(device)
 
 # Train the models
-train_models(param_model, sir_model, t_data, SIR_tensor, epochs=10000, lr=0.001, N=params["N"])
-
+# train_models(param_model, sir_model, t_data, SIR_tensor, epochs=10000, lr=0.001, N=params["N"])
+                                                                
 
 # Train the models and collect losses
-losses = train_models(param_model, sir_model, t_data, SIR_tensor, epochs=10000, lr=0.001, N=params["N"])
+losses = train_models(param_model, sir_model, t_data, SIR_tensor, epochs=100000, lr=0.001, N=params["N"])
 
 # Plotting the losses
-plt.figure(figsize=(10, 5))
-plt.plot(losses, label='Training Loss')
-plt.yscale('log')
-plt.xlabel('Epochs')
-plt.ylabel('Loss')
-plt.title('Training Loss Over Time')
-plt.legend()
-plt.show()
+def plot_loss(losses, title):
+    plt.grid(True, which="both", ls=":")
+    plt.plot(np.arange(1, len(losses) + 1), np.log10(losses), label="Loss")
+    plt.title(f"{title} Loss")
+    plt.xlabel("Epochs")
+    plt.ylabel("Log10 Loss")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(f"../../reports/figures/{title}_loss.pdf")
+    plt.show()
 
 # Plot the results
 plot_SIR_results_subplots(t_data, SIR_tensor, sir_model, "SIR Model Predictions")
 plot_param_results_subplots(t_data, param_model, "Parameter Dynamics")
+plot_loss(losses, "SIR")
 
 # plot the results for R0
 with torch.no_grad():
