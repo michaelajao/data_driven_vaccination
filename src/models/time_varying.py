@@ -421,7 +421,7 @@ sir_model = SIRNet(num_layers=5, hidden_neurons=32).to(device)
 
 # Train the models and collect losses
 losses = train_models(
-    param_model, sir_model, t_data, SIR_tensor, epochs=50000, lr=0.001, N=params["N"]
+    param_model, sir_model, t_data, SIR_tensor, epochs=23000, lr=0.001, N=params["N"]
 )
 
 
