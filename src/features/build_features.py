@@ -57,3 +57,7 @@ england_data["areaName"] = "England"
 england_data.to_pickle("../../data/processed/england_data.pkl")
 england_data.to_csv("../../data/processed/england_data.csv")
 
+import tensorflow as tf
+
+tf.__version__
+tf.config.list_physical_devices('GPU')

@@ -53,3 +53,18 @@ plt.legend()
 plt.title('SEIRDC Model Simulation')
 plt.savefig(f"../../reports/figures/seirdc_model_simulation.png")
 plt.show()
+
+
+def oddNumbers(l, r):
+    # Generate a list of odd numbers between l and r (inclusive)
+    result = []
+    for num in range(l, r+1):
+        if num % 2 != 0:
+            result.append(num)
+    return result
+
+# Testing the function with the sample input provided.
+sample_input_l = 2
+sample_input_r = 5
+odd_numbers_result = oddNumbers(sample_input_l, sample_input_r)
+odd_numbers_result
