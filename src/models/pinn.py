@@ -1,84 +1,10 @@
-# import os
-# import torch
-# from torch import nn, optim
-# import lightning as pl
-# from pytorch_lightning.callbacks import ModelCheckpoint
-# import numpy as np
-# import pandas as pd
-# import matplotlib.pyplot as plt
-# from sklearn.metrics import mean_absolute_error, mean_squared_error
-# from sklearn.preprocessing import StandardScaler, MinMaxScaler
-# from tqdm import tqdm
-
-
-# # Set random seed for reproducibility
-# pl.seed_everything(42)
-
-# torch.backends.cudnn.deterministic = True
-# torch.backends.cudnn.benchmark = False
-
-# # select all avbailable GPUs
-# device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
-
-# # Set the default style
-# plt.style.use("seaborn-v0_8-white")
-# plt.rcParams.update(
-#     {
-#         "lines.linewidth": 2,
-#         "font.family": "serif",
-#         "axes.titlesize": 20,
-#         "axes.labelsize": 14,
-#         "figure.figsize": [15, 8],
-#         "figure.autolayout": True,
-#         "axes.spines.top": False,
-#         "axes.spines.right": False,
-#         "axes.grid": True,
-#         "grid.color": "0.75",
-#         "legend.fontsize": "medium",
-#     }
-# )
-
-# # Load the data
-# path = "../../data/raw/pickle/covid19_data.pkl"
-# data = pd.read_pickle(path)
-
-# # select one of the region
-# region = "North East England"
-# data = data[data["region"] == region]
-
-# # Convert the date to datetime
-# data["date"] = pd.to_datetime(data["date"])
-
-# min_date = data["date"].min()
-# max_date = data["date"].max()
-
-# data_range = max_date - min_date
-# train_end = min_date + pd.Timedelta(days=data_range.days * 0.70)
-# val_end = train_end + pd.Timedelta(days=data_range.days * 0.15)
-
-# # Split the data into train, validation and test
-# train = data[data['date'] < train_end]
-# val = data[(data['date'] >= train_end) & (data['date'] < val_end)]
-# test = data[data['date'] >= val_end]
-
-# total_sample = len(data)
-# train_percent = len(train) / total_sample * 100
-# val_percent = len(val) / total_sample * 100
-# test_percent = len(test) / total_sample * 100
-
-# print(f"Train: {len(train)} samples ({train_percent:.2f}%)")
-# print(f"Validation: {len(val)} samples ({val_percent:.2f}%)")
-# print(f"Test: {len(test)} samples ({test_percent:.2f}%)")
-
-
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-
+from torch.optim.lr_scheduler import ReduceLROnPlateau, StepLR
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 # runge-kutta method
-from scipy.integrate import odeint, solve_ivp
+from scipy.integrate import solve_ivp
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -106,27 +32,42 @@ check_pytorch()
 
 # Set up matplotlib
 plt.rcParams.update({
-    "font.family": "serif",
-    "figure.facecolor": "white",
-    "axes.facecolor": "white",
-    "axes.titlesize": 20,
-    "axes.labelsize": 12,
-    "figure.figsize": [20, 10],
-    "figure.autolayout": True,
-    "legend.fontsize": "medium",
-    "legend.frameon": False,
-    "legend.loc": "best",
-    "lines.linewidth": 2.5,
-    "lines.markersize": 10,
-    "font.size": 14,
-    "xtick.labelsize": 12,
+    # Font settings for clarity and compatibility with academic publications
+    "font.family": "serif",  # Consistent font family
+    # "font.serif": ["Times", "Computer Modern Roman"],  # Preferred serif fonts
+    "font.size": 14,  # Base font size for better readability
+    "text.usetex": False,  # Enable LaTeX for text rendering for a professional look
+
+    # Figure aesthetics & size for detailed visuals and fit on publication pages
+    "figure.figsize": (8, 5),  # Adjusted figure size for a balance between detail and fit
+    "figure.facecolor": "white",  # White figure background for clean print
+    "figure.autolayout": True,  # Enable automatic layout adjustments
+    "figure.dpi": 400,  # High resolution figures
+    "savefig.dpi": 400,  # High resolution saving settings
+    "savefig.format": "pdf",  # Save figures in PDF format for publications
+    "savefig.bbox": "tight",  # Tight bounding box around figures
+
+    # Axes aesthetics for clarity and precision
+    "axes.labelsize": 14,  # Clear labeling with larger font size
+    "axes.titlesize": 20,  # Prominent titles for immediate recognition
+    "axes.facecolor": "white",  # White axes background
+
+    # Legend aesthetics for distinguishing plot elements
+    "legend.fontsize": 12,  # Readable legend font size
+    "legend.frameon": False,  # No frame around legend for cleaner look
+    "legend.loc": "best",  # Optimal legend positioning
+
+    # Line aesthetics for clear visual distinctions
+    "lines.linewidth": 2,  # Thicker lines for visibility
+    "lines.markersize": 8,  # Slightly smaller markers for balance
+
+    # Tick label sizes for readability
+    "xtick.labelsize": 12, 
     "ytick.labelsize": 12,
-    "figure.dpi": 300,
-    "savefig.dpi": 300,
-    "savefig.format": "pdf",
-    "savefig.bbox": "tight",
-    
+    "xtick.direction": "in",  # Ticks inside the plot
+    "ytick.direction": "in",  # Ticks inside the plot
 })
+
 
 # Set random seed for reproducibility
 torch.manual_seed(42)
@@ -137,35 +78,103 @@ if torch.cuda.is_available():
 # Device setup for CUDA or CPU
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# SIR Model Differential Equations
-def deriv(y, t, N, beta, gamma):
-    S, I, R = y
-    dSdt = -beta * S * I / N
-    dIdt = beta * S * I / N - gamma * I
-    dRdt = gamma * I
-    return dSdt, dIdt, dRdt
+# SAIRD Model Parameters and Initial Conditions as per the paper
+params = {
+    "rho1": 0.80,
+    "rho2": 0.29,
+    "alpha": 0.1,
+    "beta": 0.17,
+    "gamma": 1 / 16,
+    "theta": 0.001,
+    "N": 1000,
+}
+initial_conditions = [970, 10, 20, 0, 0]  # [S0, A0, I0, R0, D0]
+
+
+# Define the SAIRD model differential equations
+def saird_model(t, y, params):
+    S, A, I, R, D = y
+    N = params["N"]
+    dSdt = -params["beta"] * I * S / N - params["alpha"] * A * S / N
+    dAdt = (
+        params["rho2"] * params["beta"] * I * S / N
+        + (1 - params["rho1"]) * params["alpha"] * A * S / N
+        - params["gamma"] * A
+        - params["theta"] * A
+    )
+    dIdt = (
+        (1 - params["rho2"]) * params["beta"] * I * S / N
+        + params["rho1"] * params["alpha"] * A * S / N
+        - params["gamma"] * I
+        - params["theta"] * I
+    )
+    dRdt = params["gamma"] * (I + A)
+    dDdt = params["theta"] * (I + A)
+    return [dSdt, dAdt, dIdt, dRdt, dDdt]
+
+
+# Generate synthetic SAIRD data
+t_span = [0, 100]  # 100 days
+t_eval = np.linspace(t_span[0], t_span[1], 100)  # 100 data points
+saird_solution = solve_ivp(
+    saird_model,
+    t_span,
+    initial_conditions,
+    args=(params,),
+    t_eval=t_eval,
+    method="RK45",
+)
+
+# Plot the SAIRD data
+plt.plot(saird_solution.t, saird_solution.y[0], label="S(t)")
+plt.plot(saird_solution.t, saird_solution.y[1], label="A(t)")
+plt.plot(saird_solution.t, saird_solution.y[2], label="I(t)")
+plt.plot(saird_solution.t, saird_solution.y[3], label="R(t)")
+plt.plot(saird_solution.t, saird_solution.y[4], label="D(t)")
+plt.xlabel("Time (days)")
+plt.ylabel("Proportion of Population")
+plt.title("Synthetic SAIRD Data")
+plt.legend()
+plt.savefig("../../reports/figures/saird_data.pdf")
+plt.show()
+
+# Extract SIR data from SAIRD solution
+S_saird, A_saird, I_saird, R_saird, D_saird = saird_solution.y
+S_sir = S_saird + A_saird  # S compartment for SIR
+R_sir = R_saird + D_saird  # R compartment for SIR
+I_sir = I_saird
+
+# normalize the data
+S_sir /= params["N"]
+I_sir /= params["N"]
+R_sir /= params["N"]
+
+# Convert the data to PyTorch tensors
+t_data = torch.tensor(t_eval, dtype=torch.float32).reshape(-1, 1).to(device)
+S_data = torch.tensor(S_sir, dtype=torch.float32).reshape(-1, 1).to(device)
+I_data = torch.tensor(I_sir, dtype=torch.float32).reshape(-1, 1).to(device)
+R_data = torch.tensor(R_sir, dtype=torch.float32).reshape(-1, 1).to(device)
+SIR_tensor = torch.cat([S_data, I_data, R_data], 1)
+t_data.requires_grad = True
 
 # SIR Neural Network Model
 class SIRNet(nn.Module):
-    def __init__(self, inverse=False, init_beta=None, init_gamma=None, retrain_seed=42):
+    def __init__(self, inverse=False, init_beta=None, init_gamma=None, retrain_seed=42, num_layers=4, hidden_neurons=20):
         super(SIRNet, self).__init__()
         self.retrain_seed = retrain_seed
-        self.net = nn.Sequential(
-            nn.Linear(1, 20),
-            nn.Tanh(),
-            nn.Linear(20, 20),
-            nn.Tanh(),
-            nn.Linear(20, 20),
-            nn.Tanh(),
-            nn.Linear(20, 20),
-            nn.Tanh(),
-            nn.Linear(20, 3)
-        )
+        layers = []
+        layers.append(nn.Linear(1, hidden_neurons))
+        layers.append(nn.Tanh())
+        for _ in range(num_layers - 1):
+            layers.append(nn.Linear(hidden_neurons, hidden_neurons))
+            layers.append(nn.Tanh())
+        layers.append(nn.Linear(hidden_neurons, 3))
+        self.net = nn.Sequential(*layers)
 
         # Adjustments for inverse model with customizable initial values
         if inverse:
-            self._beta = nn.Parameter(torch.tensor([init_beta if init_beta is not None else torch.rand(1)], device=device))
-            self._gamma = nn.Parameter(torch.tensor([init_gamma if init_gamma is not None else torch.rand(1)], device=device))
+            self._beta = nn.Parameter(torch.tensor([init_beta if init_beta is not None else torch.rand(1)], device=device), requires_grad=True)
+            self._gamma = nn.Parameter(torch.tensor([init_gamma if init_gamma is not None else torch.rand(1)], device=device), requires_grad=True)
         else:
             self._beta = None
             self._gamma = None
@@ -176,13 +185,16 @@ class SIRNet(nn.Module):
     def forward(self, t):
         return self.net(t)
 
+    # Getter for beta to be between 0.1 and 1.0
     @property
     def beta(self):
-        return torch.sigmoid(self._beta) if self._beta is not None else None
+        return torch.sigmoid(self._beta) * 0.9 + 0.1 if self._beta is not None else None
 
+    # for gamma to be between 0.01 and 0.1
     @property
     def gamma(self):
-        return torch.sigmoid(self._gamma) if self._gamma is not None else None
+        return torch.sigmoid(self._gamma) * 0.09 + 0.01 if self._gamma is not None else None
+    
 
     # Initialize the neural network with Xavier Initialization
     def init_xavier(self):
@@ -198,9 +210,10 @@ class SIRNet(nn.Module):
         self.apply(init_weights)
 
 
-# Common loss function for both forward and inverse problems
+# loss function for both forward and inverse problems
 def sir_loss(model, model_output, SIR_tensor, t_tensor, N, beta=None, gamma=None):
     S_pred, I_pred, R_pred = model_output[:, 0], model_output[:, 1], model_output[:, 2]
+    
     S_t = torch.autograd.grad(S_pred, t_tensor, torch.ones_like(S_pred), create_graph=True)[0]
     I_t = torch.autograd.grad(I_pred, t_tensor, torch.ones_like(I_pred), create_graph=True)[0]
     R_t = torch.autograd.grad(R_pred, t_tensor, torch.ones_like(R_pred), create_graph=True)[0]
@@ -219,7 +232,7 @@ def sir_loss(model, model_output, SIR_tensor, t_tensor, N, beta=None, gamma=None
 # Early stopping class
 class EarlyStopping:
     """Early stops the training if validation loss doesn't improve after a given patience."""
-    def __init__(self, patience=7, verbose=False, delta=0):
+    def __init__(self, patience=3, verbose=False, delta=0):
         self.patience = patience
         self.verbose = verbose
         self.delta = delta
@@ -242,102 +255,123 @@ class EarlyStopping:
             self.best_score = score
             self.counter = 0
             
-# Training function
 def train(model, t_tensor, SIR_tensor, epochs=1000, lr=0.001, N=None, beta=None, gamma=None):
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=5,)
-    early_stopping = EarlyStopping(patience=5, verbose=True)
+    # scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=5)
+    scheduler = StepLR(
+        optimizer, step_size=50000, gamma=0.1
+    )
+    early_stopping = EarlyStopping(patience=1000, verbose=True)
+    
+    losses = []
     
     for epoch in range(epochs):
         model.train()
         optimizer.zero_grad()
+        
+        # Forward pass
         model_output = model(t_tensor)
+        
+        # Loss calculation
         loss = sir_loss(model, model_output, SIR_tensor, t_tensor, N, beta, gamma)
+        
+        # Backward pass and optimization
         loss.backward()
         optimizer.step()
         scheduler.step(loss)
         
-        if epoch % 100 == 0:
-            print(f"Epoch {epoch}, Loss: {loss.item():.4f}")
+        # append the loss
+        losses.append(loss.item())
         
-        # Check early stopping
+        if (epoch + 1) % 100 == 0 or epoch == 0:
+            print(
+                f"Epoch [{epoch + 1}/{epochs}], Loss: {loss.item():.6f}, LR: {scheduler.get_last_lr()[0]}"
+            )  # Print the current learning rate
+        
         early_stopping(loss)
         if early_stopping.early_stop:
             print("Early stopping")
+            
+            #save the best model
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+                'loss': loss,
+            }, f"../../models/{model.__class__.__name__}.pt")
+            print("Model saved")
             break
         
     print("Training finished")
+    
+    return losses
 
-
-# Data Preparation
-N = 1000  # Total population
-beta = 0.5  # Infection rate
-gamma = 0.2  # Recovery rate
-I0, R0 = 1, 0  # Initial number of infected and recovered individuals
-S0 = N - I0  # Initial number of susceptible individuals
-
-# Time points for observation in days
-t = np.linspace(0, 50, 1000)  # Time grid
-
-# Solve the SIR model using runge-kutta method
-ret = odeint(deriv, [S0, I0, R0], t, args=(N, beta, gamma))
-
-S, I, R = ret.T / N  # Normalizing the data
-
-# Conversion to Tensors
-t_tensor = torch.tensor(t, dtype=torch.float32, device=device).view(-1, 1)
-S_tensor = torch.tensor(S, dtype=torch.float32, device=device).view(-1, 1)
-I_tensor = torch.tensor(I, dtype=torch.float32, device=device).view(-1, 1)
-R_tensor = torch.tensor(R, dtype=torch.float32, device=device).view(-1, 1)
-SIR_tensor = torch.cat([S_tensor, I_tensor, R_tensor], dim=1)
-t_tensor.requires_grad = True
-
-# Train the forward problem
-model_forward = SIRNet().to(device)
-print("Training Forward Model")
-train(model_forward, t_tensor, SIR_tensor, epochs=50000, lr=0.0001, N=N, beta=beta, gamma=gamma)
-
-# Train the inverse problem
-model_inverse = SIRNet(inverse=True, init_beta=0.1, init_gamma=0.1, retrain_seed=100).to(device)
-print("\nTraining Inverse Model")
-train(model_inverse, t_tensor, SIR_tensor, epochs=50000, lr=0.0001, N=N)
-
+# Adjusted plot_results function to match your request format
 def plot_results(t, S, I, R, model, title):
     model.eval()
     with torch.no_grad():
-        predictions = model(t_tensor).cpu().numpy()
-
-    plt.subplot(1, 3, 1)
-    plt.plot(t, S, label='Susceptible')
-    plt.plot(t, predictions[:, 0], label='Susceptible (predicted)', linestyle='dashed')
-    plt.title('Susceptible')
-    plt.xlabel('Time')
-    plt.ylabel('Proportion of Population')
-    plt.legend()
+        predictions = model(t).cpu().numpy()
     
-    plt.subplot(1, 3, 2)
-    plt.plot(t, I, label='Infected')
-    plt.plot(t, predictions[:, 1], label='Infected (predicted)', linestyle='dashed')
-    plt.title('Infected')
-    plt.xlabel('Time')
-    plt.ylabel('Proportion of Population')
-    plt.legend()
+    t_np = t.cpu().detach().numpy().flatten()
+    fig, axs = plt.subplots(1, 3, figsize=(12, 6))
     
-    plt.subplot(1, 3, 3)
-    plt.plot(t, R, label='Recovered')
-    plt.plot(t, predictions[:, 2], label='Recovered (predicted)', linestyle='dashed')
-    plt.title('Recovered')
-    plt.xlabel('Time')
-    plt.ylabel('Proportion of Population')
-    plt.legend()
-
- # Adjust the layout
+    for ax, data, pred, label in zip(axs, [S, I, R], predictions.T, ['Susceptible', 'Infected', 'Recovered']):
+        ax.plot(t_np, data.cpu().detach().numpy().flatten(), label=f'{label}')
+        ax.plot(t_np, pred, linestyle='dashed', label=f'{label} (predicted)')
+        ax.set_title(f'{label}')
+        ax.set_xlabel('Time')
+        ax.set_ylabel('Proportion of Population')
+        ax.legend()
+    
     plt.tight_layout()
     plt.savefig(f"../../reports/figures/{title}.pdf")
     plt.show()
+    
 
-# Plot results for the forward model
-plot_results(t, S, I, R, model_forward, "Forward Model Predictions")
+#function to plot the loss
+def plot_loss(losses, title):
+    plt.plot(np.arange(1, len(losses) + 1), np.log10(losses), label="Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Log10 Loss")
+    plt.title(f"{title} Loss")
+    plt.legend()
+    plt.savefig(f"../../reports/figures/{title}_loss.pdf")
+    plt.show()
 
-# Plot results for the inverse model
-plot_results(t, S, I, R, model_inverse, "Inverse Model Predictions")
+
+
+# Train the forward problem
+model_forward = SIRNet(num_layers=5, hidden_neurons=32)
+model_forward.to(device)
+losses = train(model_forward, t_data, SIR_tensor, epochs=100000, lr=0.001, N=params["N"], beta=params["beta"], gamma=params["gamma"])
+
+plot_results(t_data, S_data, I_data, R_data, model_forward, "Forward Model Results")
+plot_loss(losses, "Forward Model Loss")
+
+# Train the inverse problem
+model_inverse = SIRNet(inverse=True, init_beta=0.2, init_gamma=0.05, num_layers=5, hidden_neurons=32)
+model_inverse.to(device)
+losses = train(model_inverse, t_data, SIR_tensor, epochs=100000, lr=0.001, N=params["N"])
+
+plot_results(t_data, S_data, I_data, R_data, model_inverse, "Inverse Model Results")
+plot_loss(losses, "Inverse Model Loss")
+
+
+
+# Extract the beta and gamma values
+beta_pred = model_inverse.beta.item()
+gamma_pred = model_inverse.gamma.item()
+print(f"Predicted beta: {beta_pred:.4f}, Predicted gamma: {gamma_pred:.4f}")
+
+# Evaluate the model with the predicted parameters for the inverse problem with MAE, MSE, and RMSE using Sklearn
+# Generate the predicted SIR data and convert the normalized data back to the original scale and evaluate the metrics
+with torch.no_grad():
+    SIR_pred = model_forward(t_data).cpu().detach().numpy() * params["N"]
+    SIR_true = SIR_tensor.cpu().detach().numpy() * params["N"]
+    
+    mae = mean_absolute_error(SIR_true, SIR_pred)
+    mse = mean_squared_error(SIR_true, SIR_pred)
+    rmse = np.sqrt(mse)
+    
+    print(f"MAE: {mae:.2f}, MSE: {mse:.2f}, RMSE: {rmse:.2f}")
