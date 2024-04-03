@@ -10,7 +10,10 @@ from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
 
+from torch.utils.tensorboard import SummaryWriter
+writer = SummaryWriter("../../reports/runs/time_varying_sir")
 
+# Check PyTorch version and CUDA availability
 def check_pytorch():
     # Print PyTorch version
     print(f"PyTorch version: {torch.__version__}")
@@ -279,6 +282,7 @@ class EarlyStopping:
             self.counter = 0
 
 
+
 # Training function
 def train_models(param_model, sir_model, t_data, SIR_tensor, epochs, lr, N):
     param_optimizer = optim.Adam(param_model.parameters(), lr=lr)
@@ -415,14 +419,16 @@ def plot_param_results_subplots(t_data, param_model, title):
 param_model = ParamNet(output_size=2, num_layers=5, hidden_neurons=32).to(device)
 sir_model = SIRNet(num_layers=5, hidden_neurons=32).to(device)
 
-# Train the models
-# train_models(param_model, sir_model, t_data, SIR_tensor, epochs=10000, lr=0.001, N=params["N"])
-
+# inspect the model using tensorboard
+writer.add_graph(param_model, t_data)
+writer.add_graph(sir_model, t_data)
+writer.close()
 
 # Train the models and collect losses
 losses = train_models(
     param_model, sir_model, t_data, SIR_tensor, epochs=23000, lr=0.001, N=params["N"]
 )
+
 
 
 # Plotting the losses
