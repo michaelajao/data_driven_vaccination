@@ -1,0 +1,115 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:ics.py - http://git.io/lLljaA
+BEGIN:VEVENT
+DESCRIPTION:Spend 30 minutes on a HackerRank question.
+DURATION:PT30M
+DTSTART:20240404T151500Z
+SUMMARY:Hackerrank Practice
+UID:d8bd4c93-90e1-4529-9845-5cc9d52e1f86@d8bd.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Enjoy your dinner.
+DURATION:PT1H
+DTSTART:20240404T200000Z
+SUMMARY:Dinner
+UID:26c762f4-18fd-4879-9da6-b3b27b977132@26c7.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Dive into your coding projects before your class.
+DURATION:PT1H
+DTSTART:20240404T110000Z
+SUMMARY:Coding
+UID:da3fa166-f115-41db-84ad-4abb6e2a34bd@da3f.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Enjoy a hearty brunch to recharge.
+DURATION:PT1H
+DTSTART:20240404T120000Z
+SUMMARY:Brunch
+UID:b1102218-f005-4909-8a91-8b6a6cce6740@b110.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:30 minutes of low-impact activities\, considering your knee.
+DURATION:PT30M
+DTSTART:20240404T071500Z
+SUMMARY:Exercise
+UID:cee10d08-1e5f-4a9a-8408-a1a4287e011a@cee1.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Start to get ready for bed. Consider some light reading or meditation.
+DURATION:PT1H
+DTSTART:20240404T230000Z
+SUMMARY:Wind Down
+UID:5701d898-990e-43cc-9371-7189cc86b5cf@5701.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Start your day with a nutritious meal to fuel your morning.
+DURATION:PT30M
+DTSTART:20240404T083000Z
+SUMMARY:Breakfast
+UID:a7045c1f-80d7-4a2f-8b2e-53a14ed4a7aa@a704.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Dedicate this time to reading research papers.
+DURATION:PT2H
+DTSTART:20240404T090000Z
+SUMMARY:Research and Reading
+UID:5f6a22b2-57b5-404c-bea2-b333e1bdce73@5f6a.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Take a brief break to relax and reset.
+DURATION:PT15M
+DTSTART:20240404T154500Z
+SUMMARY:Free Time/Short Break
+UID:00334a44-23f2-4af1-bfe3-5623896cf28f@0033.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Start to wind down your work and transition into relaxation mode.
+DURATION:PT1H
+DTSTART:20240404T190000Z
+SUMMARY:Wrap up & Relax
+UID:6d5f1204-2858-4dd9-8eaf-9378571c66fc@6d5f.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Time to freshen up and prepare for the day.
+DURATION:PT45M
+DTSTART:20240404T074500Z
+SUMMARY:Shower and get ready
+UID:e162a95a-2a5f-419f-ac11-7cdb8f18fe8d@e162.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Continue with your coding projects.
+DURATION:PT3H
+DTSTART:20240404T160000Z
+SUMMARY:Coding
+UID:c14cebd8-6398-41f7-9fba-99d36d469304@c14c.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Time to sleep and recharge for the next day.
+DTSTART:20240406T000000Z
+SUMMARY:Bedtime
+UID:b65d5cb0-8824-48db-905d-6bef61563096@b65d.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Engage with your classes or meetings.
+DURATION:PT2H
+DTSTART:20240404T130000Z
+SUMMARY:Online Classes/Meetings
+UID:f60a1220-ae0a-47a0-9660-3d4b290fd93f@f60a.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Begin your leisure time\, including talking to your girlfriend and watching a TV series together.
+DURATION:PT2H
+DTSTART:20240404T210000Z
+SUMMARY:Leisure Time
+UID:4ffa0893-7daf-47c9-92eb-fbb293ea8161@4ffa.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Start your day with some light stretching to gently wake your body up.
+DURATION:PT15M
+DTSTART:20240404T070000Z
+SUMMARY:Wake up
+UID:62f4dfa6-a42e-4911-aa03-6bfd6e8fca42@62f4.org
+END:VEVENT
+END:VCALENDAR
