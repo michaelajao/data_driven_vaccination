@@ -1,3 +1,6 @@
+from datetime import datetime, timedelta
+from ics import Calendar, Event, DisplayAlarm
+
 # from datetime import datetime, timedelta
 # from ics import Calendar, Event, Alarm
 
@@ -97,9 +100,6 @@
 # print("Complete schedule created successfully!")
 
 
-from datetime import datetime, timedelta
-from ics import Calendar, Event, DisplayAlarm
-
 # Initialize a new Calendar
 c = Calendar()
 
@@ -119,62 +119,69 @@ def create_event(
 
 
 # Define the start date
-start_date = datetime(2024, 4, 4)  # Example date, adjust as necessary
+start_date = datetime(2024, 4, 8)  # Example date, adjust as necessary
 
 # Schedule events
 events = [
     (
         "Wake up",
         "Start your day with some light stretching to gently wake your body up.",
-        start_date.replace(hour=7, minute=0),
+        start_date.replace(hour=6, minute=0),
         0,
         15,
     ),
     (
-        "Exercise",
+        "Pray and Exercise",
         "30 minutes of low-impact activities, considering your knee.",
-        start_date.replace(hour=7, minute=15),
+        start_date.replace(hour=6, minute=15),
         0,
         30,
     ),
     (
-        "Shower and get ready",
+        "Shower and Get Ready",
         "Time to freshen up and prepare for the day.",
-        start_date.replace(hour=7, minute=45),
+        start_date.replace(hour=6, minute=45),
         0,
         45,
     ),
     (
-        "Breakfast",
+        "Breakfast and coffee",
         "Start your day with a nutritious meal to fuel your morning.",
-        start_date.replace(hour=8, minute=30),
+        start_date.replace(hour=7, minute=30),
         0,
         30,
     ),
     (
+        "Bike ride to research lab",
+        "Enjoy a bike ride to the research lab and listen to a podcast on the way.",
+        start_date.replace(hour=8, minute=0),
+        0,
+        15,
+    ),
+    (
         "Research and Reading",
         "Dedicate this time to reading research papers.",
-        start_date.replace(hour=9, minute=0),
+        start_date.replace(hour=8, minute=15),
         2,
         0,
     ),
     (
         "Coding",
-        "Dive into your coding projects before your class.",
-        start_date.replace(hour=11, minute=0),
-        1,
+        "Dive into your coding projects for your research work.",
+        start_date.replace(hour=10, minute=15),
+        2,
         0,
     ),
     (
         "Brunch",
         "Enjoy a hearty brunch to recharge.",
-        start_date.replace(hour=12, minute=0),
-        1,
+        start_date.replace(hour=12, minute=15),  #
         0,
+        45,
     ),
     (
         "Online Classes/Meetings",
-        "Engage with your classes or meetings.",
+        "Engage with your classes or meetings with a focused mind.",
         start_date.replace(hour=13, minute=0),
         2,
         0,
@@ -182,52 +189,72 @@ events = [
     (
         "Hackerrank Practice",
         "Spend 30 minutes on a HackerRank question.",
-        start_date.replace(hour=15, minute=15),
+        start_date.replace(hour=15, minute=0),
         0,
         30,
     ),
     (
         "Free Time/Short Break",
         "Take a brief break to relax and reset.",
-        start_date.replace(hour=15, minute=45),
+        start_date.replace(hour=15, minute=30),
         0,
         15,
     ),
     (
         "Coding",
         "Continue with your coding projects.",
-        start_date.replace(hour=16, minute=0),
-        3,
-        0,
-    ),
-    (
-        "Wrap up & Relax",
-        "Start to wind down your work and transition into relaxation mode.",
-        start_date.replace(hour=19, minute=0),
-        1,
-        0,
-    ),
-    ("Dinner", "Enjoy your dinner.", start_date.replace(hour=20, minute=0), 1, 0),
-    (
-        "Leisure Time",
-        "Begin your leisure time, including talking to your girlfriend and watching a TV series together.",
-        start_date.replace(hour=21, minute=0),
+        start_date.replace(hour=15, minute=45),
         2,
         0,
     ),
     (
-        "Wind Down",
-        "Start to get ready for bed. Consider some light reading or meditation.",
-        start_date.replace(hour=23, minute=0),
+        "bike to the gym and exercise the legs",
+        "1 hour of strength training and cardio exercises.",
+        start_date.replace(hour=17, minute=45),
         1,
         0,
     ),
     (
-        "Bedtime",
-        "Time to sleep and recharge for the next day.",
-        start_date.replace(day=6, hour=0, minute=0),
+        "bike ride back home",
+        "Enjoy a bike ride back home and listen to a podcast on the way.",
+        start_date.replace(hour=18, minute=45),
         0,
+        15,
+    ),
+    (
+        "Shower, relax and unwind",
+        "Take a shower and relax after your workout.",
+        start_date.replace(hour=19, minute=0),
         0,
+        30,
+    ),
+    (
+        "Dinner",
+        "Enjoy your dinner." "Maybe watch an episode of your TV series.",
+        start_date.replace(hour=19, minute=30),
+        0,
+        30,
+    ),
+    (
+        "Quality time with family",
+        "Spend quality time with your family, playing games or watching a movie and including talking to your girlfriend and watching a TV series together.",
+        start_date.replace(hour=20, minute=0),
+        1,
+        30,
+    ),
+    (
+        "work on the presentation for tomorrow meeting with my supervisor to discuss the progress of the research work",
+        "Prepare for the meeting with your supervisor.",
+        start_date.replace(hour=21, minute=30),
+        2,
+        0,
+    ),
+    (
+        "Prepare for bed",
+        "Wind down and prepare for a restful night's sleep.",
+        start_date.replace(hour=23, minute=30),
+        0,
+        30,
     ),
 ]
 
