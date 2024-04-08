@@ -375,3 +375,4 @@ with torch.no_grad():
     rmse = np.sqrt(mse)
     
     print(f"MAE: {mae:.2f}, MSE: {mse:.2f}, RMSE: {rmse:.2f}")
+    
