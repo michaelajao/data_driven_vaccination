@@ -2,136 +2,136 @@ BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:ics.py - http://git.io/lLljaA
 BEGIN:VEVENT
-DESCRIPTION:Enjoy a bike ride to the research lab and listen to a podcast on the way.
-DURATION:PT15M
-DTSTART:20240408T080000Z
-SUMMARY:Bike ride to research lab
-UID:21315012-6a40-45f6-9d66-73bff15e3428@2131.org
-END:VEVENT
-BEGIN:VEVENT
-DESCRIPTION:Start your day with a nutritious meal to fuel your morning.
-DURATION:PT30M
-DTSTART:20240408T073000Z
-SUMMARY:Breakfast and coffee
-UID:4eb24c7a-01f3-4794-9449-8c136d4ccdc6@4eb2.org
-END:VEVENT
-BEGIN:VEVENT
-DESCRIPTION:Prepare for the meeting with your supervisor.
-DURATION:PT2H
-DTSTART:20240408T213000Z
-SUMMARY:work on the presentation for tomorrow meeting with my supervisor to discuss the progress of the research work
-UID:9a33a3b5-2111-4152-9fe3-8f7ef9d7b7c5@9a33.org
-END:VEVENT
-BEGIN:VEVENT
-DESCRIPTION:Continue with your coding projects.
-DURATION:PT2H
-DTSTART:20240408T154500Z
-SUMMARY:Coding
-UID:51df4c78-bd65-4857-9c22-5b4e66575355@51df.org
-END:VEVENT
-BEGIN:VEVENT
 DESCRIPTION:1 hour of strength training and cardio exercises.
 DURATION:PT1H
 DTSTART:20240408T174500Z
 SUMMARY:bike to the gym and exercise the legs
-UID:0f3ca3ba-4751-4345-b114-f0da5905c71b@0f3c.org
-END:VEVENT
-BEGIN:VEVENT
-DESCRIPTION:Engage with your classes or meetings with a focused mind.
-DURATION:PT2H
-DTSTART:20240408T130000Z
-SUMMARY:Online Classes/Meetings
-UID:c6e3f141-7d15-4e9b-8115-a508988d9e2d@c6e3.org
-END:VEVENT
-BEGIN:VEVENT
-DESCRIPTION:Wind down and prepare for a restful night's sleep.
-DURATION:PT30M
-DTSTART:20240408T233000Z
-SUMMARY:Prepare for bed
-UID:e95cfea9-a3ce-4821-a9f8-ab0579f12ee4@e95c.org
-END:VEVENT
-BEGIN:VEVENT
-DESCRIPTION:Time to freshen up and prepare for the day.
-DURATION:PT45M
-DTSTART:20240408T064500Z
-SUMMARY:Shower and Get Ready
-UID:0965ebf7-71be-41fc-b4ba-a2b57f78f168@0965.org
-END:VEVENT
-BEGIN:VEVENT
-DESCRIPTION:Dive into your coding projects for your research work.
-DURATION:PT2H
-DTSTART:20240408T101500Z
-SUMMARY:Coding
-UID:f9d6d4ba-6b94-4b0e-b08b-96c98f3b5eea@f9d6.org
+UID:4efc7076-f831-4bce-ae6d-b3bc78c186ed@4efc.org
 END:VEVENT
 BEGIN:VEVENT
 DESCRIPTION:Take a brief break to relax and reset.
 DURATION:PT15M
 DTSTART:20240408T153000Z
 SUMMARY:Free Time/Short Break
-UID:521d669a-e8d9-4c7a-99fb-b4df0cb118aa@521d.org
-END:VEVENT
-BEGIN:VEVENT
-DESCRIPTION:Enjoy your dinner.Maybe watch an episode of your TV series.
-DURATION:PT30M
-DTSTART:20240408T193000Z
-SUMMARY:Dinner
-UID:f72e4528-2176-47b3-a651-62637afac9d4@f72e.org
-END:VEVENT
-BEGIN:VEVENT
-DESCRIPTION:Spend quality time with your family\, playing games or watching a movie and including talking to your girlfriend and watching a TV series together.
-DURATION:PT1H30M
-DTSTART:20240408T200000Z
-SUMMARY:Quality time with family
-UID:d5ae5186-8d14-4982-af1b-86e5d01f8ac6@d5ae.org
-END:VEVENT
-BEGIN:VEVENT
-DESCRIPTION:Enjoy a bike ride back home and listen to a podcast on the way.
-DURATION:PT15M
-DTSTART:20240408T184500Z
-SUMMARY:bike ride back home
-UID:c462455f-5e17-448a-9fc1-d0ec31b51e0d@c462.org
-END:VEVENT
-BEGIN:VEVENT
-DESCRIPTION:Dedicate this time to reading research papers.
-DURATION:PT2H
-DTSTART:20240408T081500Z
-SUMMARY:Research and Reading
-UID:b3cdb751-a947-44e3-8e5c-7747c640f004@b3cd.org
-END:VEVENT
-BEGIN:VEVENT
-DESCRIPTION:30 minutes of low-impact activities\, considering your knee.
-DURATION:PT30M
-DTSTART:20240408T061500Z
-SUMMARY:Pray and Exercise
-UID:5f9ab7cf-1773-4770-8c45-dcbe898f467e@5f9a.org
-END:VEVENT
-BEGIN:VEVENT
-DESCRIPTION:Spend 30 minutes on a HackerRank question.
-DURATION:PT30M
-DTSTART:20240408T150000Z
-SUMMARY:Hackerrank Practice
-UID:8cfd653c-6356-47a9-ba0b-c00b9a225369@8cfd.org
-END:VEVENT
-BEGIN:VEVENT
-DESCRIPTION:Take a shower and relax after your workout.
-DURATION:PT30M
-DTSTART:20240408T190000Z
-SUMMARY:Shower\, relax and unwind
-UID:66f803cb-39cd-4bda-9dde-9f32af3c0a76@66f8.org
-END:VEVENT
-BEGIN:VEVENT
-DESCRIPTION:Enjoy a hearty brunch to recharge.
-DURATION:PT45M
-DTSTART:20240408T121500Z
-SUMMARY:Brunch
-UID:96c55e56-30c0-4541-8a5a-2aadf123c8f6@96c5.org
+UID:c110ef59-d2cf-42a5-84f3-a21ba1971ef4@c110.org
 END:VEVENT
 BEGIN:VEVENT
 DESCRIPTION:Start your day with some light stretching to gently wake your body up.
 DURATION:PT15M
 DTSTART:20240408T060000Z
 SUMMARY:Wake up
-UID:97bc525f-760e-4540-8259-141eb392522d@97bc.org
+UID:ab5e6e55-5b5b-405d-90b5-43def9dc5e6a@ab5e.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Time to freshen up and prepare for the day.
+DURATION:PT45M
+DTSTART:20240408T064500Z
+SUMMARY:Shower and Get Ready
+UID:d7296c75-eb87-4b93-925d-596f0f25bf07@d729.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Spend 30 minutes on a HackerRank question.
+DURATION:PT30M
+DTSTART:20240408T150000Z
+SUMMARY:Hackerrank Practice
+UID:f87f3bf3-c9a9-4893-8875-6f88f9510029@f87f.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Engage with your classes or meetings with a focused mind.
+DURATION:PT2H
+DTSTART:20240408T130000Z
+SUMMARY:Online Classes/Meetings
+UID:988e0848-c0a5-4d0c-b143-d09993fc6820@988e.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Enjoy a bike ride back home and listen to a podcast on the way.
+DURATION:PT15M
+DTSTART:20240408T184500Z
+SUMMARY:bike ride back home
+UID:8384271f-3b4a-4abf-bcc1-81781738e68a@8384.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Dedicate this time to reading research papers.
+DURATION:PT2H
+DTSTART:20240408T081500Z
+SUMMARY:Research and Reading
+UID:34f975ae-cdfc-475a-9dca-085341da6d56@34f9.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Continue with your coding projects.
+DURATION:PT2H
+DTSTART:20240408T154500Z
+SUMMARY:Coding
+UID:030153e1-4ba3-4713-8690-faffa5660f9d@0301.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Enjoy a bike ride to the research lab and listen to a podcast on the way.
+DURATION:PT15M
+DTSTART:20240408T080000Z
+SUMMARY:Bike ride to research lab
+UID:45080fb7-132c-4c05-92c8-e5d3e0413665@4508.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Enjoy a hearty brunch to recharge.
+DURATION:PT45M
+DTSTART:20240408T121500Z
+SUMMARY:Brunch
+UID:2ca0f46a-2d5d-442b-a360-b7340278400a@2ca0.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Prepare for the meeting with your supervisor.
+DURATION:PT2H
+DTSTART:20240408T213000Z
+SUMMARY:work on the presentation for tomorrow meeting with my supervisor to discuss the progress of the research work
+UID:158aa775-cb98-4aaa-b177-5c6117b8f887@158a.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Wind down and prepare for a restful night's sleep.
+DURATION:PT30M
+DTSTART:20240408T233000Z
+SUMMARY:Prepare for bed
+UID:e5454669-2b19-403b-be34-751543a83ad4@e545.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:30 minutes of low-impact activities\, considering your knee.
+DURATION:PT30M
+DTSTART:20240408T061500Z
+SUMMARY:Pray and Exercise
+UID:a8a4bee0-e8bb-4edf-adf1-b66aa6e89aea@a8a4.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Take a shower and relax after your workout.
+DURATION:PT30M
+DTSTART:20240408T190000Z
+SUMMARY:Shower\, relax and unwind
+UID:37b5cb4f-ae2f-4a43-add3-ad608c1f1696@37b5.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Enjoy your dinner.Maybe watch an episode of your TV series.
+DURATION:PT30M
+DTSTART:20240408T193000Z
+SUMMARY:Dinner
+UID:096e9038-a146-452a-b1e8-188b367e319f@096e.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Start your day with a nutritious meal to fuel your morning.
+DURATION:PT30M
+DTSTART:20240408T073000Z
+SUMMARY:Breakfast and coffee
+UID:fb4fbb6d-3f7a-436a-a202-550d2ff0d610@fb4f.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Dive into your coding projects for your research work.
+DURATION:PT2H
+DTSTART:20240408T101500Z
+SUMMARY:Coding
+UID:235e977d-373d-4da7-9aac-3c04ab39963d@235e.org
+END:VEVENT
+BEGIN:VEVENT
+DESCRIPTION:Spend quality time with your family\, playing games or watching a movie and including talking to your girlfriend and watching a TV series together.
+DURATION:PT1H30M
+DTSTART:20240408T200000Z
+SUMMARY:Quality time with family
+UID:2a973649-e5ff-493b-b10e-92dcda852971@2a97.org
 END:VEVENT
 END:VCALENDAR
