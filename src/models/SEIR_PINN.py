@@ -190,34 +190,31 @@ def split_time_series_data(df, train_size=0.7, val_size=0.15, test_size=0.15):
 
 data = load_and_preprocess_data("../../data/processed/england_data.csv", recovery_period=21, rolling_window=7, start_date="2020-04-01")
 
-# Standardize the data
-# data["cumulative_confirmed"] = data["cumulative_confirmed"] / data["population"]
-# data["cumulative_deceased"] = data["cumulative_deceased"] / data["population"]
-# data["covidOccupiedMVBeds"] = data["covidOccupiedMVBeds"] / data["population"]
-# data["active_cases"] = data["active_cases"] / data["population"]
-# data["hospitalCases"] = data["hospitalCases"] / data["population"]
-# data["recovered"] = data["recovered"] / data["population"]
+# Standardize the data using MinMaxScaler
+scaler = StandardScaler()
+data[[ "cumulative_confirmed", "new_deceased", "covidOccupiedMVBeds", "hospitalCases", "recovered", "active_cases", "S(t)"]] = scaler.fit_transform(data[[ "cumulative_confirmed", "new_deceased", "covidOccupiedMVBeds", "hospitalCases", "recovered", "active_cases", "S(t)"]])
+
 
 # split data
 train_data, val_data, test_data = split_time_series_data(data, train_size=0.7, val_size=0.15, test_size=0.15)
 
 
-train_data = train_data[["days_since_start", "cumulative_confirmed", "cumulative_deceased", "covidOccupiedMVBeds", "hospitalCases", "recovered", "active_cases", "S(t)"]]
+# train_data = train_data[["days_since_start", "cumulative_confirmed", "cumulative_deceased", "covidOccupiedMVBeds", "hospitalCases", "recovered", "active_cases", "S(t)"]]
 
-plt.figure(figsize=(12, 6))
-plt.plot(train_data["days_since_start"], train_data["cumulative_confirmed"], label="Confirmed Cases")
+# plt.figure(figsize=(12, 6))
+# plt.plot(train_data["days_since_start"], train_data["cumulative_confirmed"], label="Confirmed Cases")
 
-plt.xlabel("Days Since Start")
-plt.ylabel("Proportion of Population")
-plt.title("Confirmed and Deceased Cases Over Time")
-plt.legend()
-plt.show()
+# plt.xlabel("Days Since Start")
+# plt.ylabel("Proportion of Population")
+# plt.title("Confirmed and Deceased Cases Over Time")
+# plt.legend()
+# plt.show()
 
 t_train = torch.tensor(train_data["days_since_start"].values, dtype=torch.float32).view(-1, 1).to(device).requires_grad_(True)
 S_train = torch.tensor(train_data["S(t)"].values, dtype=torch.float32).view(-1, 1).to(device)
 I_train = torch.tensor(train_data["active_cases"].values, dtype=torch.float32).view(-1, 1).to(device)
 R_train = torch.tensor(train_data["recovered"].values, dtype=torch.float32).view(-1, 1).to(device)
-D_train = torch.tensor(train_data["cumulative_deceased"].values, dtype=torch.float32).view(-1, 1).to(device)
+D_train = torch.tensor(train_data["new_deceased"].values, dtype=torch.float32).view(-1, 1).to(device)
 H_train = torch.tensor(train_data["hospitalCases"].values, dtype=torch.float32).view(-1, 1).to(device)
 C_train = torch.tensor(train_data["covidOccupiedMVBeds"].values, dtype=torch.float32).view(-1, 1).to(device)
 
@@ -232,14 +229,18 @@ class SIHCRDNet(nn.Module):
         self.inverse = inverse
         layers = [nn.Linear(1, hidden_neurons), nn.Tanh()]
         for _ in range(num_layers - 1):
-            layers += [nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()]
+            layers.append(nn.Linear(hidden_neurons, hidden_neurons))
+            layers.append(nn.Tanh())
         layers.append(nn.Linear(hidden_neurons, 6))  # Output layer for S, I, H, C, R, D
         self.net = nn.Sequential(*layers)
 
         if inverse:
-            # Assuming init_params is a dictionary with keys 'beta', 'gamma', 'rho', 'eta', 'theta'
-            default_values = torch.rand(5)
-            self.params = nn.Parameter(torch.tensor([init_params.get(k, default_values[i]) for i, k in enumerate(['beta', 'gamma', 'rho', 'eta', 'theta'])], device='cuda' if torch.cuda.is_available() else 'cpu'), requires_grad=True)
+            # Check if init_params is provided and has all required keys
+            required_keys = ['beta', 'gamma', 'rho', 'eta', 'theta']
+            if init_params is None or any(key not in init_params for key in required_keys):
+                raise ValueError(f"Missing initial parameters for the model. Required keys: {required_keys}")
+            param_values = [init_params[key] for key in required_keys]
+            self.params = nn.Parameter(torch.tensor(param_values, dtype=torch.float32))
         else:
             self.params = None
 
@@ -247,6 +248,7 @@ class SIHCRDNet(nn.Module):
 
     def forward(self, t):
         return self.net(t)
+
 
     @property
     def beta(self):
@@ -270,14 +272,12 @@ class SIHCRDNet(nn.Module):
 
     def init_xavier(self):
         torch.manual_seed(self.retrain_seed)
-
         def init_weights(m):
             if isinstance(m, nn.Linear):
                 g = nn.init.calculate_gain('tanh')
                 nn.init.xavier_uniform_(m.weight, gain=g)
                 if m.bias is not None:
                     m.bias.data.fill_(0)
-
         self.apply(init_weights)
 
                 
@@ -377,7 +377,7 @@ def plot_sihcrd_results(t, S, I, H, C, R, D, model, title):
 
 def train_sihcrd(model, t_tensor, SIHCRD_tensor, epochs=1000, lr=0.001, N=None, params=None):
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=5)
+    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.9, patience=5)
     early_stopping = EarlyStopping(patience=10, verbose=True)
     
     losses = []
@@ -412,7 +412,7 @@ def train_sihcrd(model, t_tensor, SIHCRD_tensor, epochs=1000, lr=0.001, N=None, 
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict(),
+                # 'scheduler_state_dict': scheduler.state_dict(),
                 'loss': loss,
             }, f"../../models/{model.__class__.__name__}_SIHCRD.pt")
             print("Model saved")
@@ -423,9 +423,19 @@ def train_sihcrd(model, t_tensor, SIHCRD_tensor, epochs=1000, lr=0.001, N=None, 
     return losses
 
 # Initialize the SIHCRD model
-model = SIHCRDNet(inverse=False, init_params=params).to(device)
+model = SIHCRDNet(inverse=True, init_params=params, retrain_seed=42, num_layers=4, hidden_neurons=20).to(device)
 
-# Training the SIHCRD model
-losses = train_sihcrd(model, t_train, SIHCRD_train, epochs=1000, lr=0.001, N=params["N"])
+# Train the SIHCRD model
+losses = train_sihcrd(model, t_train, SIHCRD_train, epochs=100000, lr=0.001, N=params["N"])
+# Plot the training loss in log scale
+plt.figure(figsize=(12, 6))
+plt.plot(losses, label="Loss")
+plt.yscale('log')
+plt.xlabel("Epoch")
+plt.ylabel("Loss (log scale)")
+plt.title("SIHCRD Model Training Loss")
+plt.legend()
+plt.show()
 
-# Plot the training loss
+# plot the results
+plot_sihcrd_results(t_train, S_train, I_train, H_train, C_train, R_train, D_train, model, "SIHCRD Model Training Results")
