@@ -426,7 +426,7 @@ def train_sihcrd(model, t_tensor, SIHCRD_tensor, epochs=1000, lr=0.001, N=None, 
 model = SIHCRDNet(inverse=True, init_params=params, retrain_seed=42, num_layers=4, hidden_neurons=20).to(device)
 
 # Train the SIHCRD model
-losses = train_sihcrd(model, t_train, SIHCRD_train, epochs=100000, lr=0.001, N=params["N"])
+losses = train_sihcrd(model, t_train, SIHCRD_train, epochs=50000, lr=0.001, N=params["N"])
 # Plot the training loss in log scale
 plt.figure(figsize=(12, 6))
 plt.plot(losses, label="Loss")
