@@ -228,7 +228,21 @@ data = load_and_preprocess_data(
     recovery_period=21,
     rolling_window=7,
     start_date="2020-04-01",
-)
+).drop("Unnamed: 0", axis=1)
+
+data.head()
+
+# check the date for to see if the data is continuous
+data["date"].diff().dt.days.unique()
+
+# show me the missing dates
+missing_dates = pd.date_range(start="2020-04-01", end="2020-10-31").difference(data["date"])
+missing_dates
+
+# show the all the dates in the range
+all_dates = pd.date_range(start="2020-04-01", end="2020-06-30")
+all_dates
+
 
 # # Standardize the data
 # data["cumulative_confirmed"] = data["cumulative_confirmed"] / data["population"]
@@ -244,8 +258,8 @@ data = load_and_preprocess_data(
 
 # train_data = train_data.head(100)
 
-start_date = "2020-04-01"
-end_date = "2020-08-31"
+start_date = "2020-05-01"
+end_date = "2020-06-30"
 mask = (data["date"] >= start_date) & (data["date"] <= end_date)
 train_data = data.loc[mask]
 
@@ -286,10 +300,10 @@ train_data = train_data[
 # Convert the training data to PyTorch tensors
 
 t_train = (
+    # start from 1 to avoid log(0) in loss calculation
     torch.tensor(train_data["days_since_start"].values, dtype=torch.float32)
     .view(-1, 1)
-    .to(device)
-    .requires_grad_(True)
+    .to(device).requires_grad_(True)
 )
 S_train = (
     torch.tensor(train_data["S(t)"].values, dtype=torch.float32).view(-1, 1).to(device)
