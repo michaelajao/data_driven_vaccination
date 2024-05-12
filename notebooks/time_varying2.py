@@ -1,4 +1,3 @@
-# %%
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -17,7 +16,7 @@ from tqdm.notebook import tqdm
 
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-# %%
+# Set the random seed for reproducibility
 plt.style.use("seaborn-v0_8-poster")
 plt.rcParams.update(
     {
@@ -82,14 +81,13 @@ plt.rcParams.update(
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# %%
+
 # Set random seed for reproducibility
 torch.manual_seed(42)
 if torch.cuda.is_available():
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-# %%
 def check_pytorch():
     # Print PyTorch version
     print(f"PyTorch version: {torch.__version__}")
@@ -112,7 +110,6 @@ def check_pytorch():
         
 check_pytorch()
 
-# %%
 # N is the total population
 def SIHCRD_model(t, y, beta, gamma, delta, alpha, N):
     """
@@ -206,14 +203,14 @@ ax.set_title("SIHCRD Model")
 ax.legend()
 plt.show()
 
-# %%
+# Load the data
 df = pd.read_csv("../data/processed/england_data.csv").drop(
     columns=["Unnamed: 0"], axis=1
 )
 
 df.head()
 
-# %%
+# Data preprocessing
 def load_and_preprocess_data(
     filepath, recovery_period=16, rolling_window=7, start_date="2020-04-01"
 ):
@@ -294,48 +291,7 @@ def load_and_preprocess_data(
 
     return df
 
-
-def split_time_series_data(df, train_size=0.7, val_size=0.15, test_size=0.15):
-    """
-
-    Splits the DataFrame into training, validation, and test sets while maintaining the time series order.
-
-
-    Args:
-
-        df (pd.DataFrame): The input DataFrame with time series data.
-
-        train_size (float): Proportion of the dataset to allocate to training.
-
-        val_size (float): Proportion of the dataset to allocate to validation.
-
-        test_size (float): Proportion of the dataset to allocate to testing.
-
-
-    Returns:
-
-        tuple: Three DataFrames corresponding to the training, validation, and test sets.
-    """
-
-    if not np.isclose(train_size + val_size + test_size, 1.0):
-
-        raise ValueError("train_size, val_size, and test_size should sum to 1.")
-
-    n = len(df)
-
-    train_end = int(n * train_size)
-
-    val_end = train_end + int(n * val_size)
-
-    train_data = df.iloc[:train_end]
-
-    val_data = df.iloc[train_end:val_end]
-
-    test_data = df.iloc[val_end:]
-
-    return train_data, val_data, test_data
-
-# %%
+# Load and preprocess the data
 data = load_and_preprocess_data(
     "../data/processed/england_data.csv",
     recovery_period=21,
@@ -344,21 +300,12 @@ data = load_and_preprocess_data(
 ).drop(columns=["Unnamed: 0"], axis=1)
 
 
-# # split data
-
-# train_data, val_data, test_data = split_time_series_data(data, train_size=0.7, val_size=0.15, test_size=0.15)
-
-
-# train_data = train_data.head(100)
-
-data.head()
-
-# %%
+# Split the data into training and validation sets
 train_data_start = "2020-05-01"
-train_data_end = "2020-08-31"
+train_data_end = "2020-12-31"
 
-val_data_start = "2020-09-01"
-val_data_end = "2020-10-31"
+val_data_start = "2021-01-01"
+val_data_end = "2021-04-30"
 
 t_mask = (data["date"] >= train_data_start) & (data["date"] <= train_data_end)
 train_data = data.loc[t_mask]
@@ -366,7 +313,7 @@ train_data = data.loc[t_mask]
 v_mask = (data["date"] >= val_data_start) & (data["date"] <= val_data_end)
 val_data = data.loc[v_mask]
 
-# %%
+# Display the training and validation data
 def prepare_tensors(data, device):
     # t should be the length of the data starting from 1
     t = (
@@ -413,7 +360,7 @@ features = [
     "new_deceased",
 ]
 
-# %%
+# Normalize the data using MinMaxScaler
 scaler = MinMaxScaler()
 scaler.fit(train_data[features])
 
@@ -432,7 +379,7 @@ t_val, I_val, R_val, D_val, H_val, C_val = prepare_tensors(scaled_val_data, devi
 train_tensor_data = torch.cat([I_train, H_train, C_train, R_train, D_train], dim=1)
 val_tensor_data = torch.cat([I_val, H_val, C_val, R_val, D_val], dim=1)
 
-# %%
+
 # plot I_train for the period available
 plt.plot(I_train.cpu().detach().numpy(), label="Active Cases")
 plt.title("Active Cases in England")
@@ -441,7 +388,7 @@ plt.ylabel("Active Cases")
 plt.legend()
 plt.show()
 
-# %%
+
 # plot the training data and validation data and show the split as a labeled straight dotted line
 plt.plot(I_train.cpu().detach().numpy(), label="Training Data")
 plt.plot(
@@ -456,7 +403,7 @@ plt.ylabel("Active Cases")
 plt.legend()
 plt.show()
 
-# %%
+
 # define the neural network for epi-net
 class EpiNet(nn.Module):
     def __init__(self, num_layers=2, hidden_neurons=10, output_size=5):
@@ -502,11 +449,11 @@ class BetaNet(nn.Module):
         torch.manual_seed(self.retain_seed)
 
         # Initialize layers array starting with the input layer
-        layers = [nn.Linear(1, hidden_neurons), nn.LeakyReLU()]
+        layers = [nn.Linear(1, hidden_neurons), nn.Tanh()]
 
         # Append hidden layers
         for _ in range(num_layers - 1):
-            layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.LeakyReLU()])
+            layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
 
         # Append output layer
         layers.append(
@@ -526,11 +473,11 @@ class BetaNet(nn.Module):
     def init_xavier(self):
         def init_weights(layer):
             if isinstance(layer, nn.Linear):
-                g = nn.init.calculate_gain("leaky_relu")
+                g = nn.init.calculate_gain("tanh")
                 nn.init.xavier_normal_(layer.weight, gain=g)
                 if layer.bias is not None:
                     layer.bias.data.fill_(0)
-
+                    
         self.net.apply(init_weights)
 
     def get_params(self, t):
@@ -541,15 +488,15 @@ class BetaNet(nn.Module):
 # %%
 # define the neural network for time varying parameters estimation using relu activation
 class TimeVaryingNet(nn.Module):
-    def __init__(self, num_layers=2, hidden_neurons=10, output_size=5):
+    def __init__(self, num_layers=1, hidden_neurons=10, output_size=1):
         super(TimeVaryingNet, self).__init__()
 
         # Initialize layers array starting with the input layer
-        layers = [nn.Linear(1, hidden_neurons), nn.ReLU()]
+        layers = [nn.Linear(1, hidden_neurons), nn.LeakyReLU()]
 
         # Append hidden layers
         for _ in range(num_layers - 1):
-            layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.ReLU()])
+            layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.LeakyReLU()])
 
         # Append output layer
         layers.append(nn.Linear(hidden_neurons, output_size))
@@ -557,24 +504,36 @@ class TimeVaryingNet(nn.Module):
         # Convert list of layers to nn.Sequential
         self.net = nn.Sequential(*layers)
 
+        # Initialize weights
+        # self.init_xavier()
+        
     def forward(self, t):
         return self.net(t)
     
+    # def init_xavier(self):
+    #     def init_weights(layer):
+    #         if isinstance(layer, nn.Linear):
+    #             g = nn.init.calculate_gain("leaky_relu")
+    #             nn.init.xavier_normal_(layer.weight, gain=g)
+    #             if layer.bias is not None:
+    #                 layer.bias.data.fill_(0)
+                    
+    #     self.net.apply(init_weights)
+    
     
     def get_params(self, t):
-        raw_params = self.forward(t)
-        # Ensure all parameters are positive values and using the sigmoid function to bound them between 0 and 1
-        beta = torch.sigmoid(raw_params[:, 0]) * 0.9 + 0.1
+        # Ensure beta (β) is a positive value between 0 and 1 using the sigmoid function
+        beta = torch.sigmoid(self.net(t)) * 0.9 + 0.1
         return beta
 
 # %%
 
-def pinn_loss(tensor_data, beta_net, model_output, t, N, device):
+def pinn_loss(tensor_data, beta_pred, model_output, t, N, device):
     I, H, C, R, D = tensor_data.unbind(1)
 
     # Calculate the predicted derivatives
     S = N - I.sum() - H.sum() - C.sum() - R.sum() - D.sum()
-    S_pred = -beta_net(t) * S * I / N
+    S_pred = -beta_pred * S * I / N
 
     # Using grad outputs need to be of size [batch_size], not [batch_size, 1]
     S = S.view(-1)
@@ -602,8 +561,8 @@ def pinn_loss(tensor_data, beta_net, model_output, t, N, device):
     alpha = 0.05
 
     # Compute residuals
-    dSdt = s_t + beta_net(t).view(-1) * S * I / N
-    dIdt = i_t - beta_net(t).view(-1) * S * I / N - (gamma + alpha) * I
+    dSdt = s_t + beta_pred * S * I / N
+    dIdt = i_t - beta_pred * S * I / N - (gamma + alpha) * I
     dHdt = h_t - alpha * I - (gamma + delta) * H
     dCdt = c_t - gamma * H - delta * C
     dRdt = r_t - gamma * (H + I)
@@ -659,8 +618,12 @@ class EarlyStopping:
             
 # Define the model and beta net
 model = EpiNet(num_layers=5, hidden_neurons=32, output_size=5).to(device)
-# beta_net = BetaNet(num_layers=2, hidden_neurons=32).to(device)
-beta_net = TimeVaryingNet(num_layers=2, hidden_neurons=32, output_size=1).to(device)
+# The above code is creating an instance of a neural network model called `BetaNet` with 2 hidden
+# layers and 32 neurons in each hidden layer. The model is then moved to the specified device (e.g.,
+# GPU or CPU) for computation.
+beta_net = BetaNet(num_layers=5, hidden_neurons=32).to(device)
+
+# beta_net = TimeVaryingNet(num_layers=2, hidden_neurons=32, output_size=1).to(device)
 
 # %%
 def train_model(
@@ -673,17 +636,18 @@ def train_model(
     num_epochs=1000,
     device=device,
     print_every=100,
+    verbose=True,
 ):
     # Define the optimizers
     model_optimizer = optim.Adam(model.parameters(), lr=lr)
     params_optimizer = optim.Adam(beta_net.parameters(), lr=lr)
     
     # Define the learning rate scheduler
-    model_scheduler = ReduceLROnPlateau(model_optimizer, mode="min", factor=0.1, patience=50, verbose=True)
-    params_scheduler = ReduceLROnPlateau(params_optimizer, mode="min", factor=0.1, patience=50, verbose=True)
+    # model_scheduler = ReduceLROnPlateau(model_optimizer, mode="min", factor=0.1, patience=50, verbose=verbose)
+    # params_scheduler = ReduceLROnPlateau(params_optimizer, mode="min", factor=0.1, patience=50, verbose=verbose)
     
     # Initialize the early stopping object
-    early_stopping = EarlyStopping(patience=100, verbose=True)
+    # early_stopping = EarlyStopping(patience=100, verbose=verbose)
     
     # Initialize the loss history
     loss_history = []
@@ -693,9 +657,14 @@ def train_model(
         model_optimizer.zero_grad()
         params_optimizer.zero_grad()
         
-        # Forward pass
+        # Forward pass to compute the predicted values on 30 time points of the training data
         model_output = model(t_train)
-        loss = pinn_loss(tensor_data, beta_net, model_output, t_train, N, device)
+        
+        # Forward pass to compute the predicted beta values
+        beta_pred = beta_net(t_train)
+        
+        # Compute the loss
+        loss = pinn_loss(tensor_data, beta_pred, model_output, t_train, N, device)
         
         # Backward pass
         loss.backward()
@@ -704,35 +673,32 @@ def train_model(
         model_optimizer.step()
         params_optimizer.step()
         
-        # Store the loss history
+        # Append the loss to the loss history
         loss_history.append(loss.item())
         
-        # Reduce the learning rate
-        model_scheduler.step(loss)
-        params_scheduler.step(loss)
-        
-        # Early stopping
-        early_stopping(loss)
-        
-        if early_stopping.early_stop:
-            print("Early stopping")
-            break
-        
-        if epoch % print_every == 0:
-            print(f"Epoch {epoch} - Loss: {loss.item():.4f}")
+        # Print the loss
+        if verbose and epoch % print_every == 0:
+            print(f"Epoch {epoch} - Loss: {loss.item()}")
             
+        # # Check if early stopping criteria is met
+        # early_stopping(loss.item())
+        # if early_stopping.early_stop:
+        #     print("Early stopping")
+        #     break
+        
+        # # Learning rate scheduler
+        # model_scheduler.step(loss)
+        # params_scheduler.step(loss)
+        
     return model, beta_net, loss_history
-            
-            
 
-# Define the initial conditions
-I0 = I_train[0].item()
-H0 = H_train[0].item()
-C0 = C_train[0].item()
-R0 = R_train[0].item()
-D0 = D_train[0].item()
+N = data["population"].values[0]
 
-# %%
+# Train the model with 100 data points
+model, beta_net, loss_history = train_model(
+    model, beta_net, train_tensor_data, t_train, N, lr=1e-3, num_epochs=10000
+)
+
 # plot the loss history in base 10
 plt.plot(np.log10(loss_history))
 plt.title("Log Loss History")
@@ -758,16 +724,17 @@ with torch.no_grad():
     plt.show()    
 
 # %%
-# extract the time varying beta values and plot them
-beta_net.eval()
-with torch.no_grad():
-    beta_values = beta_net.get_params(t_train).cpu().detach().numpy()
-    plt.plot(beta_values, label="Beta Values")
-    plt.title("Time Varying Beta Values")
-    plt.xlabel("Days since start")
-    plt.ylabel("Beta Value")
-    plt.legend()
-    plt.show()
+# extract the time varying beta values
+beta_values = beta_net(t_train).cpu().detach().numpy()
+
+# plot the beta values
+plt.plot(beta_values)
+plt.title("Time Varying Beta Values")
+plt.xlabel("Days since start")
+plt.ylabel("Beta")
+plt.show()
+
+
 
 # %%
 # plot the actual and predicted of the training data for hospital cases
@@ -790,6 +757,21 @@ plt.xlabel("Days since start")
 plt.ylabel("Critical Cases")
 plt.legend()
 plt.show()
+
+# predict with 50 time points from the validation data
+model.eval()
+with torch.no_grad():
+    t = t_val[:50]
+    I_pred, H_pred, C_pred, R_pred, D_pred = model(t).unbind(1)
+    
+    # plot the actual and predicted of the validation data
+    plt.plot(C_val.cpu().detach().numpy()[:50], label="Actual Critical Cases")
+    plt.plot(C_pred.cpu().detach().numpy(), label="Predicted Critical Cases")
+    plt.title("Actual vs Predicted Critical Cases")
+    plt.xlabel("Days since start")
+    plt.ylabel("Critical Cases")
+    plt.legend()
+    plt.show()
 
 # %%
 # using the trained model, predict and test on the validation data using the ODE model
