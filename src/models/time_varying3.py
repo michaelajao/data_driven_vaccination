@@ -908,199 +908,48 @@ plt.tight_layout()
 plt.show()
 
 
+# predict with 50 time points from the validation data and compare with the actual data
+def predict_and_compare(model, initial_conditions, actual_data, steps):
+    model.eval()
+    predictions = []
+    current_input = initial_conditions.to(device)
 
-# %%
-# plot the actual and predicted of the training data for hospital cases
-plt.plot(H_train.cpu().detach().numpy(), label="Actual Hospital Cases")
-plt.plot(H_pred.cpu().detach().numpy(), label="Predicted Hospital Cases")
-plt.title("Actual vs Predicted Hospital Cases")
-plt.xlabel("Days since start")
-plt.ylabel("Hospital Cases")
-plt.legend()
-plt.show()
+    # Ensure the shape matches what the model expects
+    # If model expects a single feature, reshape or select the appropriate feature
+    current_input = current_input.view(1, -1)  # Reshape to [1, number_of_features]
 
+    with torch.no_grad():
+        for i in range(steps):
+            # Forward pass to get the prediction
+            output = model(current_input)
+            predictions.append(output.cpu().numpy().flatten())
 
-# %%
-# plot the actual and predicted of the training data for critical cases and the validation data actual and predicted for critical cases
-plt.plot(C_train.cpu().detach().numpy(), label="Training Data")
-plt.plot(C_pred.cpu().detach().numpy(), label="Predicted Training Data")
-plt.plot(range(len(C_train), len(C_train) + len(C_val)), C_val.cpu().detach().numpy(), label="Validation Data")
-plt.title("Training and Validation Data for Critical Cases")
-plt.xlabel("Days since start")
-plt.ylabel("Critical Cases")
-plt.legend()
-plt.show()
+            # Update current_input to the new output for the next prediction
+            current_input = output
 
-# predict with 50 time points from the validation data
-model.eval()
-with torch.no_grad():
-    t = t_val[:50]
-    I_pred, H_pred, C_pred, R_pred, D_pred = model(t).unbind(1)
-    
-    # plot the actual and predicted of the validation data
-    plt.plot(C_val.cpu().detach().numpy()[:50], label="Actual Critical Cases")
-    plt.plot(C_pred.cpu().detach().numpy(), label="Predicted Critical Cases")
-    plt.title("Actual vs Predicted Critical Cases")
-    plt.xlabel("Days since start")
-    plt.ylabel("Critical Cases")
+    predictions = np.array(predictions)
+
+    # Plot the results
+    plt.figure(figsize=(12, 6))
+    plt.plot(np.arange(steps), predictions[:, 1], 'r--', label='Forecasted Active Cases')
+    plt.plot(np.arange(steps), actual_data[:, 0], 'b-', label='Actual Active Cases')
+    plt.title('Forecasted vs Actual Active Cases')
+    plt.xlabel('Time (days since start)')
+    plt.ylabel('Number of Active Cases')
     plt.legend()
+    plt.grid(True)
     plt.show()
 
-# %%
-# using the trained model, predict and test on the validation data using the ODE model
-model.eval()
+    return predictions, actual_data
 
-# Define the initial conditions as the last point in the trained output
-I0 = I_pred[-1].item()
-H0 = H_pred[-1].item()
-C0 = C_pred[-1].item()
-R0 = R_pred[-1].item()
-D0 = D_pred[-1].item()
+# Ensure last_known_conditions is reshaped correctly
+last_known_conditions = torch.cat([I_train[-1:], R_train[-1:], D_train[-1:]], dim=1)
+last_known_conditions = last_known_conditions.view(1, -1)  # Ensure this matches model input
 
-# Define the initial conditions
-y0 = initial_conditions(N, I0, H0, C0, R0, D0)
-
-# extract the last value of beta
-beta = beta_values[-1]
-
-# Solve the system of differential equations to predict for the t_val
-sol = solve_ivp(
-    SIHCRD_model,
-    [0, len(t_val)],
-    y0,
-    args=(beta, 0.1, 0.01, 0.05, N),
-    dense_output=True,
+# Run forecasting and comparison
+predicted_cases, actual_cases = predict_and_compare(
+    model,
+    last_known_conditions,
+    val_tensor_data.cpu().numpy(),
+    50  # number of forecasting steps
 )
-
-# Extract the solution
-t = np.linspace(0, len(t_val), 1000)
-y = sol.sol(t)
-
-# Plot the solution
-fig, ax = plt.subplots(1, 1, figsize=(8, 4))
-ax.plot(t, y[1], label="Infected", color="tab:blue")
-ax.plot(t, y[2], label="Hospitalized", color="tab:orange")
-ax.plot(t, y[3], label="Critical", color="tab:red")
-ax.plot(t, y[4], label="Recovered", color="tab:green")
-ax.plot(t, y[5], label="Deceased", color="tab:purple")
-ax.plot(t, y[0], label="Susceptible", color="tab:cyan")  # Add susceptible population
-ax.set_xlabel("Time (days)")
-ax.set_ylabel("Number of individuals")
-ax.set_title("SIHCRD Model")
-ax.legend()
-plt.show()
-
-
-# %%
-# predicting on the validation data
-model.eval()
-with torch.no_grad():
-    t = t_val
-    I_pred, H_pred, C_pred, R_pred, D_pred = model(t).unbind(1)
-    
-    # plot the actual and predicted of the validation data
-    plt.plot(I_val.cpu().detach().numpy(), label="Actual Active Cases", color="tab:orange")
-    plt.plot(I_pred.cpu().detach().numpy(), label="Predicted Active Cases", color="tab:blue")
-    
-    plt.title("Actual vs Predicted Active Cases")
-    plt.xlabel("Days since start")
-    plt.ylabel("Active Cases")
-    plt.legend()
-    plt.show()    
-
-# %%
-beta_value = beta_net(t).cpu().detach().numpy() 
-
-
-S0 = N - I_train[0] - H_train[0] - C_train[0] - R_train[0] - D_train[0]  
-y0 = [S0.item(), I_train[0].item(), H_train[0].item(), C_train[0].item(), R_train[0].item(), D_train[0].item()]
-
-# %%
-# Ensure t is handled correctly if it's a tensor
-start_time = t_val[0].cpu().item()  # Get the start time as a float
-end_time = t_val[-1].cpu().item()  # Get the end time as a float
-
-# Simulate forward in time using solve_ivp
-sol = solve_ivp(
-    lambda t, y: SIHCRD_model(t, y, beta_value, gamma, delta, alpha, N),
-    `
-)
-
-# %%
-# training loop using 30 time point of the training data and simulating forward in time
-model.eval()
-with torch.no_grad():
-    t = t_train[:30]
-    I_pred, H_pred, C_pred, R_pred, D_pred = model(t).unbind(1)
-    
-    # define the initial conditions
-    S0 = N - I0 - H0 - C0 - R0 - D0
-    y0 = [S0, I0, H0, C0, R0, D0]
-    
-    # simulate forward in time
-    sol = solve_ivp(
-        SIHCRD_model,
-        [t[0].item(), t[-1].item()],
-        y0,
-        args=(beta_net(t), 0.1, 0.01, 0.05, N),
-        dense_output=True,
-    )
-    
-    # extract the solution
-    t = np.linspace(t[0].item(), t[-1].item(), 1000)
-    y = sol.sol(t)
-    
-    # plot the actual and predicted of the training data
-    plt.plot(I_train.cpu().detach().numpy()[:30], label="Actual Active Cases")
-    plt.plot(I_pred.cpu().detach().numpy(), label="Predicted Active Cases")
-    plt.plot(t, y[1], label="Simulated Active Cases")
-    plt.title("Actual vs Predicted Active Cases")
-    plt.xlabel("Days since start")
-    plt.ylabel("Active Cases")
-    plt.legend()
-    plt.show()
-
-# %%
-
-
-# %%
-# # Filter train and validation datasets
-# train_data = data[(data['date'] >= train_data_start) & (data['date'] <= train_data_end)]
-# val_data = data[(data['date'] >= val_data_start) & (data['date'] <= val_data_end)]
-
-# # Define features for scaling
-# features = ["active_cases", "hospitalCases", "covidOccupiedMVBeds", "recovered", "new_deceased"]
-
-# # Apply MinMaxScaler
-# scaler = MinMaxScaler()
-# scaler.fit(train_data[features])
-# scaled_train_data = pd.DataFrame(scaler.transform(train_data[features]), columns=features)
-# scaled_val_data = pd.DataFrame(scaler.transform(val_data[features]), columns=features)
-
-# %%
-# def prepare_tensors(data, device):
-#     # Ensure the time tensor `t` requires gradients for autograd operations
-#     t = torch.arange(1, len(data) + 1, dtype=torch.float32, requires_grad=True).view(-1, 1).to(device)
-#     tensors = [torch.tensor(data[feature].values, dtype=torch.float32).view(-1, 1).to(device) for feature in features]
-#     return [t] + tensors
-
-
-# %%
-# # Prepare tensors for training and validation data
-# train_tensors = prepare_tensors(scaled_train_data, device)
-# val_tensors = prepare_tensors(scaled_val_data, device)
-
-# # Extract the tensors
-# t_train, I_train, R_train, D_train, H_train, C_train = train_tensors
-# t_val, I_val, R_val, D_val, H_val, C_val = val_tensors
-
-# train_tensor = torch.cat([I_train, H_train, C_train, R_train, D_train], dim=1)
-# val_tensor = torch.cat([I_val, H_val, C_val, R_val, D_val], dim=1)
-
-# %%
-
-
-# %%
-
-
-
