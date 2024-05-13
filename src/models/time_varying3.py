@@ -469,25 +469,25 @@ class BetaNet(nn.Module):
         beta = torch.sigmoid(params[:, 0]) * 0.9 + 0.1
         
         # gamma (γ) is a positive value between 0 and 0.1 using the sigmoid function
-        gamma = torch.sigmoid(params[:, 1]) * 0.1
+        gamma = torch.sigmoid(params[:, 1]) * 0.1 + 0.01
         
         # delta (δ) is a positive value between 0 and 0.01 using the sigmoid function
-        delta = torch.sigmoid(params[:, 2]) * 0.01
+        delta = torch.sigmoid(params[:, 2]) * 0.01 + 0.001
         
         # rho (ρ) is a positive value between 0 and 0.05 using the sigmoid function
-        rho = torch.sigmoid(params[:, 3]) * 0.05
+        rho = torch.sigmoid(params[:, 3]) * 0.05 + 0.001
         
         # eta (η) is a positive value between 0 and 0.05 using the sigmoid function
-        eta = torch.sigmoid(params[:, 4]) * 0.05
+        eta = torch.sigmoid(params[:, 4]) * 0.05 + 0.001
         
         # kappa (κ) is a positive value between 0 and 0.05 using the sigmoid function
-        kappa = torch.sigmoid(params[:, 5]) * 0.05
+        kappa = torch.sigmoid(params[:, 5]) * 0.05 + 0.001
         
         # mu (μ) is a positive value between 0 and 0.05 using the sigmoid function
-        mu = torch.sigmoid(params[:, 6]) * 0.05
+        mu = torch.sigmoid(params[:, 6]) * 0.05 + 0.001
         
         # xi (ξ) is a positive value between 0 and 0.01 using the sigmoid function
-        xi = torch.sigmoid(params[:, 7]) * 0.01
+        xi = torch.sigmoid(params[:, 7]) * 0.01 + 0.001
         
         return params
     
@@ -799,15 +799,112 @@ def plot_training_results(t_train, actual_data, model_output):
 
 plot_training_results(t_train, I_train, model_output[:, 1])
 
-# %%
-# extract the time varying beta values
-beta_values = beta_net(t_train).cpu().detach().numpy()
+def forecast_and_compare(model, initial_conditions, t_start, actual_data, steps):
+    model.eval()
+    predictions = []
+    current_input = initial_conditions
 
-# plot the beta values
-plt.plot(beta_values)
-plt.title("Time Varying Beta Values")
-plt.xlabel("Days since start")
-plt.ylabel("Beta")
+    # Assuming initial_conditions are correctly shaped for the model
+    # Forward pass to get the prediction for each step
+    with torch.no_grad():
+        for i in range(steps):
+            # Ensure current_input is correctly shaped for the model
+            # For example, if your model expects just one feature at a time, reshape accordingly
+            output = model(current_input.view(1, -1))  # Reshape if necessary to match model input expectations
+
+            # Store the predicted values
+            predictions.append(output.cpu().numpy().flatten())
+
+            # Update current_input to the new output for the next prediction
+            current_input = output
+
+    predictions = np.array(predictions)
+
+    # Plot the results
+    plt.figure(figsize=(12, 6))
+    plt.plot(t_start + np.arange(steps), predictions[:, 1], 'r--', label='Forecasted Active Cases')  # Adjust index as necessary
+    plt.plot(t_start + np.arange(steps), actual_data.cpu().numpy()[:, 0], 'b-', label='Actual Active Cases')  # Adjust index as necessary
+    plt.title('Forecasted vs Actual Active Cases')
+    plt.xlabel('Time (days since start)')
+    plt.ylabel('Number of Active Cases')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    return predictions, actual_data.cpu().numpy()
+
+# Assuming last_known_conditions is already shaped [(1, number of features)]
+last_known_conditions = torch.cat([I_train[-1:], R_train[-1:], D_train[-1:]], dim=1)
+
+# Start forecasting from the end of the training data
+validation_start_day = len(t_train)
+
+# Run forecasting and comparison
+predicted_cases, actual_cases = forecast_and_compare(
+    model,
+    last_known_conditions,
+    validation_start_day,
+    val_tensor_data,
+    len(t_val)
+)
+
+
+
+
+# %%
+# extract the time varying parameter values and plot them on different subplots
+beta_values, gamma_values, delta_values, rho_values, eta_values, kappa_values, mu_values, xi_values = parameters.cpu().detach().numpy().T
+
+fig, axs = plt.subplots(4, 2, figsize=(12, 12))
+axs[0, 0].plot(t_train.cpu().detach().numpy(), beta_values, label="β")
+axs[0, 0].set_title("β")
+axs[0, 0].set_xlabel("Days since start")
+axs[0, 0].set_ylabel("Value")
+axs[0, 0].legend()
+
+axs[0, 1].plot(t_train.cpu().detach().numpy(), gamma_values, label="γ")
+axs[0, 1].set_title("γ")
+axs[0, 1].set_xlabel("Days since start")
+axs[0, 1].set_ylabel("Value")
+axs[0, 1].legend()
+
+axs[1, 0].plot(t_train.cpu().detach().numpy(), delta_values, label="δ")
+axs[1, 0].set_title("δ")
+axs[1, 0].set_xlabel("Days since start")
+axs[1, 0].set_ylabel("Value")
+axs[1, 0].legend()
+
+axs[1, 1].plot(t_train.cpu().detach().numpy(), rho_values, label="ρ")
+axs[1, 1].set_title("ρ")
+axs[1, 1].set_xlabel("Days since start")
+axs[1, 1].set_ylabel("Value")
+axs[1, 1].legend()
+
+axs[2, 0].plot(t_train.cpu().detach().numpy(), eta_values, label="η")
+axs[2, 0].set_title("η")
+axs[2, 0].set_xlabel("Days since start")
+axs[2, 0].set_ylabel("Value")
+axs[2, 0].legend()
+
+axs[2, 1].plot(t_train.cpu().detach().numpy(), kappa_values, label="κ")
+axs[2, 1].set_title("κ")
+axs[2, 1].set_xlabel("Days since start")
+axs[2, 1].set_ylabel("Value")
+axs[2, 1].legend()
+
+axs[3, 0].plot(t_train.cpu().detach().numpy(), mu_values, label="μ")
+axs[3, 0].set_title("μ")
+axs[3, 0].set_xlabel("Days since start")
+axs[3, 0].set_ylabel("Value")
+axs[3, 0].legend()
+
+axs[3, 1].plot(t_train.cpu().detach().numpy(), xi_values, label="ξ")
+axs[3, 1].set_title("ξ")
+axs[3, 1].set_xlabel("Days since start")
+axs[3, 1].set_ylabel("Value")
+axs[3, 1].legend()
+
+plt.tight_layout()
 plt.show()
 
 
