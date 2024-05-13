@@ -1,3 +1,4 @@
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -111,29 +112,35 @@ def check_pytorch():
 check_pytorch()
 
 # N is the total population
-def SIHCRD_model(t, y, beta, gamma, delta, alpha, N):
+def SIHCRD_model(t, y, beta, gamma, delta, rho, eta, kappa, mu, xi, N):
     """
     Define the SIHCRD model as a system of differential equations.
-
+    
     Parameters:
-    - t: Time variable.
+    - t: Time step (days).
     - y: State variables [S, I, H, C, R, D].
     - beta: Infection rate.
     - gamma: Recovery rate.
-    - delta: Death rate.
-    - alpha: Hospitalization rate.
+    - delta: Mortality rate.
+    - rho: Hospitalization rate.
+    - eta: Critical rate.
+    - kappa: Recovery rate from hospitalization.
+    - mu: Recovery rate from critical condition.
+    - xi: Mortality rate from critical condition.
     - N: Total population.
-
+    
     Returns:
-    - A list of the derivatives for each state variable.
+    - A list of the rates of change for each state variable.
+    
+    
     """
     S, I, H, C, R, D = y
-    dSdt = -beta * S * I / N
-    dIdt = beta * S * I / N - (gamma + alpha) * I
-    dHdt = alpha * I - (gamma + delta) * H
-    dCdt = gamma * H - delta * C
-    dRdt = gamma * (H + I)
-    dDdt = delta * (H + C)
+    dSdt = -(beta * I / N) * S
+    dIdt = (beta * S / N) * I - (gamma + rho + delta) * I
+    dHdt = rho * I - (eta + kappa) * H
+    dCdt = eta * H - (mu + xi) * C
+    dRdt = gamma * I + kappa * H + mu * C
+    dDdt = delta * I + xi * C
     return [dSdt, dIdt, dHdt, dCdt, dRdt, dDdt]
 
 
@@ -159,19 +166,25 @@ def initial_conditions(N, I0, H0, C0, R0, D0):
 
 # Define the time span
 t0 = 0
-tf = 100
+tf = 360
 
 # Define the parameters
 N = 1e6
 I0 = 100
-H0 = 0
-C0 = 0
-R0 = 0
-D0 = 0
+H0 = 10
+C0 = 5
+R0 = 1
+D0 = 1
 beta = 0.3
 gamma = 0.1
 delta = 0.01
-alpha = 0.05
+rho = 0.05
+eta = 0.05
+kappa = 0.05
+mu = 0.05
+xi = 0.01
+
+
 
 # Define the initial conditions
 y0 = initial_conditions(N, I0, H0, C0, R0, D0)
@@ -181,7 +194,7 @@ sol = solve_ivp(
     SIHCRD_model,
     [t0, tf],
     y0,
-    args=(beta, gamma, delta, alpha, N),
+    args=(beta, gamma, delta, rho, eta, kappa, mu, xi, N),
     dense_output=True,
 )
 
@@ -204,7 +217,7 @@ ax.legend()
 plt.show()
 
 # Load the data
-df = pd.read_csv("../data/processed/england_data.csv").drop(
+df = pd.read_csv("../../data/processed/england_data.csv").drop(
     columns=["Unnamed: 0"], axis=1
 )
 
@@ -245,11 +258,6 @@ def load_and_preprocess_data(
     df["date"] = pd.to_datetime(df["date"])
     df["days_since_start"] = (df["date"] - pd.to_datetime(start_date)).dt.days
 
-    # # Data Quality Checks for cumulative data
-    # for col in ["cumulative_confirmed", "cumulative_deceased"]:
-    #     if df[col].isnull().any() or (df[col].diff().dropna() < 0).any():
-    #         raise ValueError(f"Inconsistent data in column: {col}")
-
     # Calculate recovered cases assuming a fixed recovery period
     df["recovered"] = df["cumulative_confirmed"].shift(recovery_period) - df[
         "cumulative_deceased"
@@ -260,15 +268,7 @@ def load_and_preprocess_data(
     df["active_cases"] = (
         df["cumulative_confirmed"] - df["recovered"] - df["cumulative_deceased"]
     )
-
-    # Estimate the susceptible population
-    df["S(t)"] = (
-        df["population"]
-        - df["active_cases"]
-        - df["recovered"]
-        - df["cumulative_deceased"]
-    )
-
+    
     # Apply rolling average
     for col in [
         "cumulative_confirmed",
@@ -285,18 +285,15 @@ def load_and_preprocess_data(
     df = df[df["date"] >= pd.to_datetime(start_date)].reset_index(drop=True)
 
     # Ensure no negative values
-    df[["recovered", "active_cases", "S(t)"]] = df[
-        ["recovered", "active_cases", "S(t)"]
-    ].clip(lower=0)
+    df[["recovered", "active_cases"]] = df[["recovered", "active_cases"]].clip(lower=0)
 
     return df
 
 # Load and preprocess the data
 data = load_and_preprocess_data(
-    "../data/processed/england_data.csv",
-    recovery_period=21,
-    rolling_window=7,
-    start_date="2020-04-02",
+    "../../data/processed/england_data.csv",
+    recovery_period=16,
+    start_date="2020-04-01",
 ).drop(columns=["Unnamed: 0"], axis=1)
 
 
@@ -338,24 +335,11 @@ def prepare_tensors(data, device):
         .view(-1, 1)
         .to(device)
     )
-    H = (
-        torch.tensor(data["hospitalCases"].values, dtype=torch.float32)
-        .view(-1, 1)
-        .to(device)
-    )
-    C = (
-        torch.tensor(data["covidOccupiedMVBeds"].values, dtype=torch.float32)
-        .view(-1, 1)
-        .to(device)
-    )
-    return t, I, R, D, H, C
+    return t, I, R, D
 
 
 features = [
-    # "S(t)",
     "active_cases",
-    "hospitalCases",
-    "covidOccupiedMVBeds",
     "recovered",
     "new_deceased",
 ]
@@ -370,14 +354,14 @@ scaled_train_data = pd.DataFrame(
 scaled_val_data = pd.DataFrame(scaler.transform(val_data[features]), columns=features)
 
 
-t_train, I_train, R_train, D_train, H_train, C_train = prepare_tensors(
+t_train, I_train, R_train, D_train = prepare_tensors(
     scaled_train_data, device
 )
 
-t_val, I_val, R_val, D_val, H_val, C_val = prepare_tensors(scaled_val_data, device)
+t_val, I_val, R_val, D_val = prepare_tensors(scaled_val_data, device)
 
-train_tensor_data = torch.cat([I_train, H_train, C_train, R_train, D_train], dim=1)
-val_tensor_data = torch.cat([I_val, H_val, C_val, R_val, D_val], dim=1)
+train_tensor_data = torch.cat([I_train, R_train, D_train], dim=1)
+val_tensor_data = torch.cat([I_val, R_val, D_val], dim=1)
 
 
 # plot I_train for the period available
@@ -457,7 +441,7 @@ class BetaNet(nn.Module):
 
         # Append output layer
         layers.append(
-            nn.Linear(hidden_neurons, 1)
+            nn.Linear(hidden_neurons, 8)
         )  # Output layer for estimating infection rate β
 
         # Convert list of layers to nn.Sequential
@@ -466,9 +450,6 @@ class BetaNet(nn.Module):
         # Initialize weights
         self.init_xavier()
 
-    def forward(self, t):
-        # Forward pass to compute β
-        return self.get_params(t)
 
     def init_xavier(self):
         def init_weights(layer):
@@ -479,16 +460,41 @@ class BetaNet(nn.Module):
                     layer.bias.data.fill_(0)
                     
         self.net.apply(init_weights)
-
-    def get_params(self, t):
-        # Ensure beta (β) is a positive value between 0 and 1 using the sigmoid function
-        beta = torch.sigmoid(self.net(t)) * 0.9 + 0.1
-        return beta
-
+        
+        # time varying parameters estimation using uniform distribution ranges and sigmoid function
+    def forward(self, t):
+        
+        params = self.net(t)
+        # beta (β) is a positive value between 0 and 1 using the sigmoid function
+        beta = torch.sigmoid(params[:, 0]) * 0.9 + 0.1
+        
+        # gamma (γ) is a positive value between 0 and 0.1 using the sigmoid function
+        gamma = torch.sigmoid(params[:, 1]) * 0.1
+        
+        # delta (δ) is a positive value between 0 and 0.01 using the sigmoid function
+        delta = torch.sigmoid(params[:, 2]) * 0.01
+        
+        # rho (ρ) is a positive value between 0 and 0.05 using the sigmoid function
+        rho = torch.sigmoid(params[:, 3]) * 0.05
+        
+        # eta (η) is a positive value between 0 and 0.05 using the sigmoid function
+        eta = torch.sigmoid(params[:, 4]) * 0.05
+        
+        # kappa (κ) is a positive value between 0 and 0.05 using the sigmoid function
+        kappa = torch.sigmoid(params[:, 5]) * 0.05
+        
+        # mu (μ) is a positive value between 0 and 0.05 using the sigmoid function
+        mu = torch.sigmoid(params[:, 6]) * 0.05
+        
+        # xi (ξ) is a positive value between 0 and 0.01 using the sigmoid function
+        xi = torch.sigmoid(params[:, 7]) * 0.01
+        
+        return params
+    
 # %%
 # define the neural network for time varying parameters estimation using relu activation
 class TimeVaryingNet(nn.Module):
-    def __init__(self, num_layers=1, hidden_neurons=10, output_size=1):
+    def __init__(self, num_layers=1, hidden_neurons=10, output_size=8):
         super(TimeVaryingNet, self).__init__()
 
         # Initialize layers array starting with the input layer
@@ -503,49 +509,90 @@ class TimeVaryingNet(nn.Module):
 
         # Convert list of layers to nn.Sequential
         self.net = nn.Sequential(*layers)
-
-        # Initialize weights
-        # self.init_xavier()
+        
+        # Initialize weights and perform time varying parameters estimation
+        # self.init_glorot()
         
     def forward(self, t):
-        return self.net(t)
+        output = self.net(t)
+        return output.get_params(output)
     
-    # def init_xavier(self):
+    # def init_glorot(self):
     #     def init_weights(layer):
     #         if isinstance(layer, nn.Linear):
-    #             g = nn.init.calculate_gain("leaky_relu")
-    #             nn.init.xavier_normal_(layer.weight, gain=g)
+    #             nn.init.xavier_normal_(layer.weight)
     #             if layer.bias is not None:
     #                 layer.bias.data.fill_(0)
                     
     #     self.net.apply(init_weights)
     
-    
-    def get_params(self, t):
-        # Ensure beta (β) is a positive value between 0 and 1 using the sigmoid function
-        beta = torch.sigmoid(self.net(t)) * 0.9 + 0.1
-        return beta
+    # extract the time varying parameters
+    def get_params(self, output):
+        
+        # beta (β) is a positive value between 0 and 1 using the sigmoid function
+        beta = torch.sigmoid(output[:, 0]) * 0.9 + 0.1
+        
+        # gamma (γ) is a positive value between 0 and 0.1 using the sigmoid function
+        gamma = torch.sigmoid(output[:, 1]) * 0.1
+        
+        # delta (δ) is a positive value between 0 and 0.01 using the sigmoid function
+        delta = torch.sigmoid(output[:, 2]) * 0.01
+        
+        # rho (ρ) is a positive value between 0 and 0.05 using the sigmoid function
+        rho = torch.sigmoid(output[:, 3]) * 0.05
+        
+        # eta (η) is a positive value between 0 and 0.05 using the sigmoid function
+        eta = torch.sigmoid(output[:, 4]) * 0.05
+        
+        # kappa (κ) is a positive value between 0 and 0.05 using the sigmoid function
+        kappa = torch.sigmoid(output[:, 5]) * 0.05
+        
+        # mu (μ) is a positive value between 0 and 0.05 using the sigmoid function
+        mu = torch.sigmoid(output[:, 6]) * 0.05
+        
+        # xi (ξ) is a positive value between 0 and 0.01 using the sigmoid function
+        xi = torch.sigmoid(output[:, 7]) * 0.01
+        
+        return beta, gamma, delta, rho, eta, kappa, mu, xi
 
 # %%
 
-def pinn_loss(tensor_data, beta_pred, model_output, t, N, device):
-    I, H, C, R, D = tensor_data.unbind(1)
+def pinn_loss(tensor_data, parameters, model_output, t, N, device):
+    I, R, D = tensor_data.unbind(1)
 
     # Calculate the predicted derivatives
-    S = N - I.sum() - H.sum() - C.sum() - R.sum() - D.sum()
-    S_pred = -beta_pred * S * I / N
+    # S = N - I.sum() - R.sum() - D.sum()
+    # H = N - S - I - R - D
+    # C = N - S - I - H - R - D
+    # S_pred = -beta_pred * S * I / N
+    # H_pred = alpha * I - (gamma + delta) * H
+    # C_pred = gamma * H - delta * C
 
     # Using grad outputs need to be of size [batch_size], not [batch_size, 1]
-    S = S.view(-1)
-    I_pred, H_pred, C_pred, R_pred, D_pred = model_output.unbind(1)
-    I_pred, H_pred, C_pred, R_pred, D_pred = (
-        I_pred.view(-1),
-        H_pred.view(-1),
-        C_pred.view(-1),
-        R_pred.view(-1),
-        D_pred.view(-1),
-    )
-
+    # S = S.view(-1)
+    # H = H.view(-1)
+    # C = C.view(-1)
+    
+    beta_pred = parameters[:, 0].squeeze()
+    gamma_pred = parameters[:, 1].squeeze()
+    delta_pred = parameters[:, 2].squeeze()
+    rho_pred = parameters[:, 3].squeeze()
+    eta_pred = parameters[:, 4].squeeze()
+    kappa_pred = parameters[:, 5].squeeze()
+    mu_pred = parameters[:, 6].squeeze()
+    xi_pred = parameters[:, 7].squeeze()
+    
+    
+    
+    S_pred, I_pred, H_pred, C_pred, R_pred, D_pred = model_output.unbind(1)
+    # S_pred, I_pred, H_pred, C_pred, R_pred, D_pred = (
+    #     S_pred.view(-1),
+    #     I_pred.view(-1),
+    #     H_pred.view(-1),
+    #     C_pred.view(-1),
+    #     R_pred.view(-1),
+    #     D_pred.view(-1),
+    # )
     # Compute gradients
     s_t = torch.autograd.grad(outputs=S_pred, inputs=t, grad_outputs=torch.ones_like(S_pred), create_graph=True)[0]
     i_t = torch.autograd.grad(outputs=I_pred, inputs=t, grad_outputs=torch.ones_like(I_pred), create_graph=True)[0]
@@ -554,37 +601,26 @@ def pinn_loss(tensor_data, beta_pred, model_output, t, N, device):
     r_t = torch.autograd.grad(outputs=R_pred, inputs=t, grad_outputs=torch.ones_like(R_pred), create_graph=True)[0]
     d_t = torch.autograd.grad(outputs=D_pred, inputs=t, grad_outputs=torch.ones_like(D_pred), create_graph=True)[0]
     
+
     
-    # parameters
-    gamma = 0.1
-    delta = 0.01
-    alpha = 0.05
-
-    # Compute residuals
-    dSdt = s_t + beta_pred * S * I / N
-    dIdt = i_t - beta_pred * S * I / N - (gamma + alpha) * I
-    dHdt = h_t - alpha * I - (gamma + delta) * H
-    dCdt = c_t - gamma * H - delta * C
-    dRdt = r_t - gamma * (H + I)
-    dDdt = d_t - delta * (H + C)
-
+    # Compute the predicted derivatives based on the model
+    dSdt = -beta_pred * S_pred * I_pred / N
+    dIdt = beta_pred * S_pred * I_pred / N - (gamma_pred + rho_pred + delta_pred) * I_pred
+    dHdt = rho_pred * I_pred - (eta_pred + kappa_pred) * H_pred
+    dCdt = eta_pred * H_pred - (mu_pred + xi_pred) * C_pred
+    dRdt = gamma_pred * I_pred + kappa_pred * H_pred + mu_pred * C_pred
+    dDdt = delta_pred * I_pred + xi_pred * C_pred
+    
     # Loss components
-    data_loss = torch.mean(
-        (I - I_pred) ** 2
-        + (H - H_pred) ** 2
-        + (C - C_pred) ** 2
-        + (R - R_pred) ** 2
-        + (D - D_pred) ** 2
-    )
-    physics_loss = torch.mean(dSdt**2 + dIdt**2 + dHdt**2 + dCdt**2 + dRdt**2 + dDdt**2)
-    initial_condition_loss = torch.mean(
-        (I[0] - I_pred[0]) ** 2
-        + (H[0] - H_pred[0]) ** 2
-        + (C[0] - C_pred[0]) ** 2
-        + (R[0] - R_pred[0]) ** 2
-        + (D[0] - D_pred[0]) ** 2
-    )
-
+    # Data loss
+    data_loss = torch.mean((I - I_pred) ** 2 + (R - R_pred) ** 2 + (D - D_pred) ** 2)
+    
+    # physics loss
+    physics_loss = torch.mean((s_t - dSdt) ** 2 + (i_t - dIdt) ** 2 + (h_t - dHdt) ** 2 + (c_t - dCdt) ** 2 + (r_t - dRdt) ** 2 + (d_t - dDdt) ** 2)
+    
+    # initial condition loss
+    initial_condition_loss = torch.mean((I[0] - I_pred[0]) ** 2 + (R[0] - R_pred[0]) ** 2 + (D[0] - D_pred[0]) ** 2)
+    
     # Total loss
     loss = data_loss + physics_loss + initial_condition_loss
     return loss
@@ -617,13 +653,13 @@ class EarlyStopping:
             
             
 # Define the model and beta net
-model = EpiNet(num_layers=5, hidden_neurons=32, output_size=5).to(device)
+model = EpiNet(num_layers=10, hidden_neurons=32, output_size=6).to(device)
 # The above code is creating an instance of a neural network model called `BetaNet` with 2 hidden
 # layers and 32 neurons in each hidden layer. The model is then moved to the specified device (e.g.,
 # GPU or CPU) for computation.
-beta_net = BetaNet(num_layers=5, hidden_neurons=32).to(device)
+beta_net = BetaNet(num_layers=10, hidden_neurons=32).to(device)
 
-# beta_net = TimeVaryingNet(num_layers=2, hidden_neurons=32, output_size=1).to(device)
+# beta_net = TimeVaryingNet(num_layers=5, hidden_neurons=32, output_size=8).to(device)
 
 # %%
 def train_model(
@@ -643,11 +679,11 @@ def train_model(
     params_optimizer = optim.Adam(beta_net.parameters(), lr=lr)
     
     # Define the learning rate scheduler
-    # model_scheduler = ReduceLROnPlateau(model_optimizer, mode="min", factor=0.1, patience=50, verbose=verbose)
-    # params_scheduler = ReduceLROnPlateau(params_optimizer, mode="min", factor=0.1, patience=50, verbose=verbose)
+    model_scheduler = StepLR(model_optimizer, step_size=5000, gamma=0.6)
+    params_scheduler = StepLR(params_optimizer, step_size=5000, gamma=0.6)
     
     # Initialize the early stopping object
-    # early_stopping = EarlyStopping(patience=100, verbose=verbose)
+    early_stopping = EarlyStopping(patience=100, verbose=verbose)
     
     # Initialize the loss history
     loss_history = []
@@ -660,11 +696,12 @@ def train_model(
         # Forward pass to compute the predicted values on 30 time points of the training data
         model_output = model(t_train)
         
-        # Forward pass to compute the predicted beta values
-        beta_pred = beta_net(t_train)
+        # Forward pass to compute the predicted parameters
+        parameters = beta_net(t_train)
         
         # Compute the loss
-        loss = pinn_loss(tensor_data, beta_pred, model_output, t_train, N, device)
+        loss = pinn_loss(tensor_data, parameters, model_output, t_train, N, device)
+    
         
         # Backward pass
         loss.backward()
@@ -673,30 +710,41 @@ def train_model(
         model_optimizer.step()
         params_optimizer.step()
         
+        
         # Append the loss to the loss history
         loss_history.append(loss.item())
         
-        # Print the loss
-        if verbose and epoch % print_every == 0:
+        # Print the loss every `print_every` epochs without using the `verbose` flag
+        if epoch % print_every == 0:
             print(f"Epoch {epoch} - Loss: {loss.item()}")
             
-        # # Check if early stopping criteria is met
-        # early_stopping(loss.item())
-        # if early_stopping.early_stop:
-        #     print("Early stopping")
-        #     break
+        # Check for early stopping
+        early_stopping(loss.item())
+        if early_stopping.early_stop:
+            print("Early stopping")
+            break
         
-        # # Learning rate scheduler
-        # model_scheduler.step(loss)
-        # params_scheduler.step(loss)
+        # Update the learning rate
+        model_scheduler.step(loss)
+        params_scheduler.step(loss)
         
-    return model, beta_net, loss_history
+        
+    return model_output, parameters, loss_history
 
 N = data["population"].values[0]
 
 # Train the model with 100 data points
-model, beta_net, loss_history = train_model(
-    model, beta_net, train_tensor_data, t_train, N, lr=1e-3, num_epochs=10000
+model_output, parameters, loss_history = train_model(
+    model,
+    beta_net,
+    train_tensor_data,
+    t_train,
+    N,
+    lr=1e-5,
+    num_epochs=50000,
+    device=device,
+    print_every=500,
+    verbose=False,
 )
 
 # plot the loss history in base 10
@@ -706,22 +754,50 @@ plt.xlabel("Epoch")
 plt.ylabel("Log Loss")
 plt.show()
 
+# plot the loss history
+plt.plot(loss_history)
+plt.title("Loss History")
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+plt.show()
 
-# %%
-# plot the actual and predicted of the training data
-model.eval()
-with torch.no_grad():
-    t = t_train
-    I_pred, H_pred, C_pred, R_pred, D_pred = model(t).unbind(1)
-    
-    # plot the actual and predicted of the training data
-    plt.plot(I_train.cpu().detach().numpy(), label="Actual Active Cases")
-    plt.plot(I_pred.cpu().detach().numpy(), label="Predicted Active Cases")
-    plt.title("Actual vs Predicted Active Cases")
-    plt.xlabel("Days since start")
-    plt.ylabel("Active Cases")
+# plot the actual and predicted of the training data for active cases 
+model_output = model(t_train)
+plt.plot(I_train.cpu().detach().numpy(), label="Actual Active Cases")
+plt.plot(model_output[:, 1].cpu().detach().numpy(), label="Predicted Active Cases")
+plt.title("Actual vs Predicted Active Cases")
+plt.xlabel("Days since start")
+plt.ylabel("Active Cases")
+plt.legend()
+plt.show()
+
+# plot the actual and predicted of the training data for active cases using the dates
+def plot_training_results(t_train, actual_data, model_output):
+    """
+    Plot the actual and predicted infected data from the training set.
+
+    Parameters:
+    - t_train: Tensor of time points (typically the training dataset's time indices).
+    - actual_data: Actual infected data from the training set.
+    - model_output: Output from the trained model, expected to contain predicted values.
+    """
+    # Convert tensors to numpy arrays for plotting
+    t_train_np = t_train.cpu().detach().numpy().flatten()
+    actual_data_np = actual_data.cpu().detach().numpy().flatten()
+    predicted_data_np = model_output.cpu().detach().numpy().flatten()  # Assuming the first column is the infected prediction
+
+    # Create the plot
+    plt.figure(figsize=(10, 5))
+    plt.plot(t_train_np, actual_data_np, label='Actual Infected', color='blue')
+    plt.plot(t_train_np, predicted_data_np, label='Predicted Infected', color='red', linestyle='--')
+    plt.title('Comparison of Actual and Predicted Infected Cases')
+    plt.xlabel('Time (days since start)')
+    plt.ylabel('Number of Infected Individuals')
     plt.legend()
-    plt.show()    
+    plt.grid(True)
+    plt.show()
+
+plot_training_results(t_train, I_train, model_output[:, 1])
 
 # %%
 # extract the time varying beta values
