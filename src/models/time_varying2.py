@@ -205,7 +205,7 @@ ax.legend()
 plt.show()
 
 # Load the data
-df = pd.read_csv("../data/processed/england_data.csv").drop(
+df = pd.read_csv("../../data/processed/england_data.csv").drop(
     columns=["Unnamed: 0"], axis=1
 )
 
@@ -294,7 +294,7 @@ def load_and_preprocess_data(
 
 # Load and preprocess the data
 data = load_and_preprocess_data(
-    "../data/processed/england_data.csv",
+    "../../data/processed/england_data.csv",
     recovery_period=21,
     rolling_window=7,
     start_date="2020-04-02",
@@ -531,10 +531,12 @@ class TimeVaryingNet(nn.Module):
 
 def pinn_loss(tensor_data, beta_pred, model_output, t, N, device):
     I, H, C, R, D = tensor_data.unbind(1)
-
-    # Calculate the predicted derivatives
+    
+    # compute the susceptible population
     S = N - I.sum() - H.sum() - C.sum() - R.sum() - D.sum()
-    S_pred = -beta_pred * S * I / N
+    
+    # Predicted values
+    S_pred = S - beta_pred * S * I / N
 
     # Using grad outputs need to be of size [batch_size], not [batch_size, 1]
     S = S.view(-1)
@@ -618,7 +620,7 @@ class EarlyStopping:
             
             
 # Define the model and beta net
-model = EpiNet(num_layers=5, hidden_neurons=32, output_size=5).to(device)
+model = EpiNet(num_layers=6, hidden_neurons=32, output_size=5).to(device)
 # The above code is creating an instance of a neural network model called `BetaNet` with 2 hidden
 # layers and 32 neurons in each hidden layer. The model is then moved to the specified device (e.g.,
 # GPU or CPU) for computation.
@@ -697,7 +699,7 @@ N = data["population"].values[0]
 
 # Train the model with 100 data points
 model, beta_net, loss_history = train_model(
-    model, beta_net, train_tensor_data, t_train, N, lr=1e-3, num_epochs=10000
+    model, beta_net, train_tensor_data, t_train, N, lr=1e-3, num_epochs=50000
 )
 
 # plot the loss history in base 10
@@ -713,7 +715,7 @@ plt.show()
 model.eval()
 with torch.no_grad():
     t = t_train
-    I_pred, H_pred, C_pred, R_pred, D_pred = model(t).unbind(1)
+    S_pred, I_pred, H_pred, C_pred, R_pred, D_pred = model(t).unbind(1)
     
     # plot the actual and predicted of the training data
     plt.plot(I_train.cpu().detach().numpy(), label="Actual Active Cases")
@@ -747,8 +749,15 @@ plt.ylabel("Hospital Cases")
 plt.legend()
 plt.show()
 
+# plot the predicted susceptible population 
+plt.plot(S_pred.cpu().detach().numpy(), label="Predicted Susceptible Population")
+plt.title("Predicted Susceptible Population")
+plt.xlabel("Days since start")
+plt.ylabel("Susceptible Population")
+plt.legend()
+plt.show()
 
-# %%
+
 # plot the actual and predicted of the training data for critical cases and the validation data actual and predicted for critical cases
 plt.plot(C_train.cpu().detach().numpy(), label="Training Data")
 plt.plot(C_pred.cpu().detach().numpy(), label="Predicted Training Data")

@@ -559,14 +559,7 @@ class TimeVaryingNet(nn.Module):
 
 def pinn_loss(tensor_data, parameters, model_output, t, N, device):
     I, R, D = tensor_data.unbind(1)
-
-    # Calculate the predicted derivatives
-    # S = N - I.sum() - R.sum() - D.sum()
-    # H = N - S - I - R - D
-    # C = N - S - I - H - R - D
-    # S_pred = -beta_pred * S * I / N
-    # H_pred = alpha * I - (gamma + delta) * H
-    # C_pred = gamma * H - delta * C
+    
 
     # Using grad outputs need to be of size [batch_size], not [batch_size, 1]
     # S = S.view(-1)
@@ -621,8 +614,15 @@ def pinn_loss(tensor_data, parameters, model_output, t, N, device):
     # initial condition loss
     initial_condition_loss = torch.mean((I[0] - I_pred[0]) ** 2 + (R[0] - R_pred[0]) ** 2 + (D[0] - D_pred[0]) ** 2)
     
+    # boundary condition loss 
+    boundary_condition_loss = torch.mean((I[-1] - I_pred[-1]) ** 2 + (R[-1] - R_pred[-1]) ** 2 + (D[-1] - D_pred[-1]) ** 2)
+    
+    # regularization loss
+    reg_loss = torch.mean(beta_pred ** 2 + gamma_pred ** 2 + delta_pred ** 2 + rho_pred ** 2 + eta_pred ** 2 + kappa_pred ** 2 + mu_pred ** 2 + xi_pred ** 2)
+    
     # Total loss
-    loss = data_loss + physics_loss + initial_condition_loss
+    loss = data_loss + physics_loss + initial_condition_loss + boundary_condition_loss + reg_loss
+    
     return loss
 
 # %%
@@ -718,15 +718,17 @@ def train_model(
         if epoch % print_every == 0:
             print(f"Epoch {epoch} - Loss: {loss.item()}")
             
+        # Step the learning rate scheduler
+
+        model_scheduler.step(loss)
+        params_scheduler.step(loss)
+            
         # Check for early stopping
         early_stopping(loss.item())
         if early_stopping.early_stop:
             print("Early stopping")
             break
-        
-        # Update the learning rate
-        model_scheduler.step(loss)
-        params_scheduler.step(loss)
+
         
         
     return model_output, parameters, loss_history
@@ -799,59 +801,60 @@ def plot_training_results(t_train, actual_data, model_output):
 
 plot_training_results(t_train, I_train, model_output[:, 1])
 
-def forecast_and_compare(model, initial_conditions, t_start, actual_data, steps):
-    model.eval()
-    predictions = []
-    current_input = initial_conditions
+# plot the predictd model outputs on separate subplots
+def plot_model_output(t_train, model_output):
+    """_summary_
 
-    # Assuming initial_conditions are correctly shaped for the model
-    # Forward pass to get the prediction for each step
-    with torch.no_grad():
-        for i in range(steps):
-            # Ensure current_input is correctly shaped for the model
-            # For example, if your model expects just one feature at a time, reshape accordingly
-            output = model(current_input.view(1, -1))  # Reshape if necessary to match model input expectations
-
-            # Store the predicted values
-            predictions.append(output.cpu().numpy().flatten())
-
-            # Update current_input to the new output for the next prediction
-            current_input = output
-
-    predictions = np.array(predictions)
-
-    # Plot the results
-    plt.figure(figsize=(12, 6))
-    plt.plot(t_start + np.arange(steps), predictions[:, 1], 'r--', label='Forecasted Active Cases')  # Adjust index as necessary
-    plt.plot(t_start + np.arange(steps), actual_data.cpu().numpy()[:, 0], 'b-', label='Actual Active Cases')  # Adjust index as necessary
-    plt.title('Forecasted vs Actual Active Cases')
-    plt.xlabel('Time (days since start)')
-    plt.ylabel('Number of Active Cases')
-    plt.legend()
-    plt.grid(True)
+    Args:
+        t_train (_type_): _description_
+        model_output (_type_): _description_
+    """
+    
+    t_train_np = t_train.cpu().detach().numpy().flatten()
+    S_pred, I_pred, H_pred, C_pred, R_pred, D_pred = model_output.cpu().detach().numpy().T
+    
+    fig, axs = plt.subplots(3, 2, figsize=(12, 12))
+    axs[0, 0].plot(t_train_np, S_pred, label="Susceptible")
+    axs[0, 0].set_title("Susceptible")
+    axs[0, 0].set_xlabel("Days since start")
+    axs[0, 0].set_ylabel("Value")
+    axs[0, 0].legend()
+    
+    axs[0, 1].plot(t_train_np, I_pred, label="Infected")
+    axs[0, 1].set_title("Infected")
+    axs[0, 1].set_xlabel("Days since start")
+    axs[0, 1].set_ylabel("Value")
+    axs[0, 1].legend()
+    
+    axs[1, 0].plot(t_train_np, H_pred, label="Hospitalized")
+    axs[1, 0].set_title("Hospitalized")
+    axs[1, 0].set_xlabel("Days since start")
+    axs[1, 0].set_ylabel("Value")
+    axs[1, 0].legend()
+    
+    axs[1, 1].plot(t_train_np, C_pred, label="Critical")
+    axs[1, 1].set_title("Critical")
+    axs[1, 1].set_xlabel("Days since start")
+    axs[1, 1].set_ylabel("Value")
+    axs[1, 1].legend()
+    
+    axs[2, 0].plot(t_train_np, R_pred, label="Recovered")
+    axs[2, 0].set_title("Recovered")
+    axs[2, 0].set_xlabel("Days since start")
+    axs[2, 0].set_ylabel("Value")
+    axs[2, 0].legend()
+    
+    axs[2, 1].plot(t_train_np, D_pred, label="Deceased")
+    axs[2, 1].set_title("Deceased")
+    axs[2, 1].set_xlabel("Days since start")
+    axs[2, 1].set_ylabel("Value")
+    axs[2, 1].legend()
+    
+    plt.tight_layout()
     plt.show()
+    
+plot_model_output(t_train, model_output)
 
-    return predictions, actual_data.cpu().numpy()
-
-# Assuming last_known_conditions is already shaped [(1, number of features)]
-last_known_conditions = torch.cat([I_train[-1:], R_train[-1:], D_train[-1:]], dim=1)
-
-# Start forecasting from the end of the training data
-validation_start_day = len(t_train)
-
-# Run forecasting and comparison
-predicted_cases, actual_cases = forecast_and_compare(
-    model,
-    last_known_conditions,
-    validation_start_day,
-    val_tensor_data,
-    len(t_val)
-)
-
-
-
-
-# %%
 # extract the time varying parameter values and plot them on different subplots
 beta_values, gamma_values, delta_values, rho_values, eta_values, kappa_values, mu_values, xi_values = parameters.cpu().detach().numpy().T
 
@@ -906,6 +909,57 @@ axs[3, 1].legend()
 
 plt.tight_layout()
 plt.show()
+
+
+def forecast_and_compare(model, initial_conditions, t_start, actual_data, steps):
+    model.eval()
+    predictions = []
+    current_input = initial_conditions
+
+    # Assuming initial_conditions are correctly shaped for the model
+    # Forward pass to get the prediction for each step
+    with torch.no_grad():
+        for i in range(steps):
+            # Ensure current_input is correctly shaped for the model
+            # For example, if your model expects just one feature at a time, reshape accordingly
+            output = model(current_input.view(1, -1))  # Reshape if necessary to match model input expectations
+
+            # Store the predicted values
+            predictions.append(output.cpu().numpy().flatten())
+
+            # Update current_input to the new output for the next prediction
+            current_input = output
+
+    predictions = np.array(predictions)
+
+    # Plot the results
+    plt.figure(figsize=(12, 6))
+    plt.plot(t_start + np.arange(steps), predictions[:, 1], 'r--', label='Forecasted Active Cases')  # Adjust index as necessary
+    plt.plot(t_start + np.arange(steps), actual_data.cpu().numpy()[:, 0], 'b-', label='Actual Active Cases')  # Adjust index as necessary
+    plt.title('Forecasted vs Actual Active Cases')
+    plt.xlabel('Time (days since start)')
+    plt.ylabel('Number of Active Cases')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    return predictions, actual_data.cpu().numpy()
+
+# Assuming last_known_conditions is already shaped [(1, number of features)]
+last_known_conditions = torch.cat([I_train[-1:], R_train[-1:], D_train[-1:]], dim=1)
+
+# Start forecasting from the end of the training data
+validation_start_day = len(t_train)
+
+# Run forecasting and comparison
+predicted_cases, actual_cases = forecast_and_compare(
+    model,
+    last_known_conditions,
+    validation_start_day,
+    val_tensor_data,
+    len(t_val)
+)
+
 
 
 # predict with 50 time points from the validation data and compare with the actual data
