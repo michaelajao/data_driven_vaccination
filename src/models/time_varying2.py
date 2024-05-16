@@ -1,6 +1,5 @@
-
 import numpy as np
-import pandas as pd
+import pandas as pd 
 import matplotlib.pyplot as plt
 
 import torch
@@ -646,11 +645,11 @@ def train_model(
     params_optimizer = optim.Adam(beta_net.parameters(), lr=lr)
     
     # Define the learning rate scheduler
-    # model_scheduler = ReduceLROnPlateau(model_optimizer, mode="min", factor=0.1, patience=50, verbose=verbose)
-    # params_scheduler = ReduceLROnPlateau(params_optimizer, mode="min", factor=0.1, patience=50, verbose=verbose)
+    model_scheduler = StepLR(model_optimizer, step_size=5000, gamma=0.9)
+    params_scheduler = StepLR(params_optimizer, step_size=5000, gamma=0.9)
     
     # Initialize the early stopping object
-    # early_stopping = EarlyStopping(patience=100, verbose=verbose)
+    early_stopping = EarlyStopping(patience=100, verbose=verbose)
     
     # Initialize the loss history
     loss_history = []
@@ -683,15 +682,16 @@ def train_model(
         if verbose and epoch % print_every == 0:
             print(f"Epoch {epoch} - Loss: {loss.item()}")
             
-        # # Check if early stopping criteria is met
-        # early_stopping(loss.item())
-        # if early_stopping.early_stop:
-        #     print("Early stopping")
-        #     break
+        # Check if early stopping criteria is met
+        early_stopping(loss.item())
+        
+        if early_stopping.early_stop:
+            print("Early stopping")
+            break
         
         # # Learning rate scheduler
-        # model_scheduler.step(loss)
-        # params_scheduler.step(loss)
+        model_scheduler.step(loss)
+        params_scheduler.step(loss)
         
     return model, beta_net, loss_history
 
@@ -699,7 +699,7 @@ N = data["population"].values[0]
 
 # Train the model with 100 data points
 model, beta_net, loss_history = train_model(
-    model, beta_net, train_tensor_data, t_train, N, lr=1e-3, num_epochs=50000
+    model, beta_net, train_tensor_data, t_train, N, lr=1e-4, num_epochs=50000
 )
 
 # plot the loss history in base 10

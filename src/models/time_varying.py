@@ -287,13 +287,11 @@ class EarlyStopping:
 def train_models(param_model, sir_model, t_data, SIR_tensor, epochs, lr, N):
     param_optimizer = optim.Adam(param_model.parameters(), lr=lr)
     sir_optimizer = optim.Adam(sir_model.parameters(), lr=lr)
-    early_stopping = EarlyStopping(patience=10, verbose=False)
+    early_stopping = EarlyStopping(patience=100, verbose=False)
 
     losses = []
 
-    for epoch in tqdm(
-        range(epochs), desc="Training", unit="epoch", position=0, leave=True
-    ):
+    for epoch in tqdm(range(epochs)):
         param_model.train()
         sir_model.train()
 
@@ -317,8 +315,11 @@ def train_models(param_model, sir_model, t_data, SIR_tensor, epochs, lr, N):
         losses.append(loss.item())
 
         # Print the loss every 100 epochs
-        if epoch % 100 == 0:
-            print(f"Epoch {epoch}, Loss: {loss.item():.6f}")
+        if (epoch + 1) % 100 == 0 or epoch == 0:
+            print(f"Epoch [{epoch + 1}/{epochs}] - Loss: {loss.item():.6f}")
+        
+        # if epoch % 100 == 0:
+        #     print(f"Epoch {epoch}, Loss: {loss.item():.6f}")
 
         # Check for early stopping
         if early_stopping(loss):

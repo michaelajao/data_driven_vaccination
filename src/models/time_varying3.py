@@ -80,8 +80,6 @@ plt.rcParams.update(
 
 # Device setup for CUDA or CPU
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
-
 
 # Set random seed for reproducibility
 torch.manual_seed(42)
@@ -679,11 +677,11 @@ def train_model(
     params_optimizer = optim.Adam(beta_net.parameters(), lr=lr)
     
     # Define the learning rate scheduler
-    model_scheduler = StepLR(model_optimizer, step_size=5000, gamma=0.6)
-    params_scheduler = StepLR(params_optimizer, step_size=5000, gamma=0.6)
+    model_scheduler = StepLR(model_optimizer, step_size=5000, gamma=0.9)
+    params_scheduler = StepLR(params_optimizer, step_size=5000, gamma=0.9)
     
     # Initialize the early stopping object
-    early_stopping = EarlyStopping(patience=100, verbose=verbose)
+    early_stopping = EarlyStopping(patience=200, verbose=verbose)
     
     # Initialize the loss history
     loss_history = []
@@ -715,8 +713,8 @@ def train_model(
         loss_history.append(loss.item())
         
         # Print the loss every `print_every` epochs without using the `verbose` flag
-        if epoch % print_every == 0:
-            print(f"Epoch {epoch} - Loss: {loss.item()}")
+        if (epoch + 1) % print_every == 0 or epoch == 0:
+            print(f"Epoch [{epoch + 1}/{num_epochs}] - Loss: {loss.item():.6f}")
             
         # Step the learning rate scheduler
 
@@ -742,7 +740,7 @@ model_output, parameters, loss_history = train_model(
     train_tensor_data,
     t_train,
     N,
-    lr=1e-5,
+    lr=1e-4,
     num_epochs=50000,
     device=device,
     print_every=500,
