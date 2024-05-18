@@ -1,3 +1,5 @@
+# %%
+
 import numpy as np
 import pandas as pd 
 import matplotlib.pyplot as plt
@@ -441,6 +443,7 @@ class EpiNet(nn.Module):
         self.net.apply(init_weights)
 
 # %%
+
 # define the neural network for beta parameter estimation
 class BetaNet(nn.Module):
     def __init__(self, num_layers=2, hidden_neurons=10):
@@ -703,12 +706,14 @@ model, beta_net, loss_history = train_model(
 )
 
 # plot the loss history in base 10
-plt.plot(np.log10(loss_history))
-plt.title("Log Loss History")
-plt.xlabel("Epoch")
+plt.figure(figsize=(10, 5))
+plt.plot(np.log10(loss_history), label="Training Loss", color="red")
+plt.xlabel("Epochs")
 plt.ylabel("Log Loss")
+plt.title("Training Loss over Epochs (Log Scale)")
+plt.legend()
+plt.tight_layout()
 plt.show()
-
 
 # %%
 # plot the actual and predicted of the training data
@@ -896,48 +901,3 @@ with torch.no_grad():
     plt.ylabel("Active Cases")
     plt.legend()
     plt.show()
-
-# %%
-
-
-# %%
-# # Filter train and validation datasets
-# train_data = data[(data['date'] >= train_data_start) & (data['date'] <= train_data_end)]
-# val_data = data[(data['date'] >= val_data_start) & (data['date'] <= val_data_end)]
-
-# # Define features for scaling
-# features = ["active_cases", "hospitalCases", "covidOccupiedMVBeds", "recovered", "new_deceased"]
-
-# # Apply MinMaxScaler
-# scaler = MinMaxScaler()
-# scaler.fit(train_data[features])
-# scaled_train_data = pd.DataFrame(scaler.transform(train_data[features]), columns=features)
-# scaled_val_data = pd.DataFrame(scaler.transform(val_data[features]), columns=features)
-
-# %%
-# def prepare_tensors(data, device):
-#     # Ensure the time tensor `t` requires gradients for autograd operations
-#     t = torch.arange(1, len(data) + 1, dtype=torch.float32, requires_grad=True).view(-1, 1).to(device)
-#     tensors = [torch.tensor(data[feature].values, dtype=torch.float32).view(-1, 1).to(device) for feature in features]
-#     return [t] + tensors
-
-
-# %%
-# # Prepare tensors for training and validation data
-# train_tensors = prepare_tensors(scaled_train_data, device)
-# val_tensors = prepare_tensors(scaled_val_data, device)
-
-# # Extract the tensors
-# t_train, I_train, R_train, D_train, H_train, C_train = train_tensors
-# t_val, I_val, R_val, D_val, H_val, C_val = val_tensors
-
-# train_tensor = torch.cat([I_train, H_train, C_train, R_train, D_train], dim=1)
-# val_tensor = torch.cat([I_val, H_val, C_val, R_val, D_val], dim=1)
-
-# %%
-
-
-# %%
-
-
-
