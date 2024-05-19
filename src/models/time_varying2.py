@@ -719,8 +719,7 @@ plt.show()
 # plot the actual and predicted of the training data
 model.eval()
 with torch.no_grad():
-    t = t_train
-    S_pred, I_pred, H_pred, C_pred, R_pred, D_pred = model(t).unbind(1)
+    I_pred, H_pred, C_pred, R_pred, D_pred = model(t_train).unbind(1)
     
     # plot the actual and predicted of the training data
     plt.plot(I_train.cpu().detach().numpy(), label="Actual Active Cases")
@@ -729,19 +728,10 @@ with torch.no_grad():
     plt.xlabel("Days since start")
     plt.ylabel("Active Cases")
     plt.legend()
-    plt.show()    
-
+    plt.show()
 # %%
-# extract the time varying beta values
-beta_values = beta_net(t_train).cpu().detach().numpy()
-
-# plot the beta values
-plt.plot(beta_values)
-plt.title("Time Varying Beta Values")
-plt.xlabel("Days since start")
-plt.ylabel("Beta")
-plt.show()
-
+# extract the beta values from the beta net
+beta_values = beta_net().getparams(t_train).cpu().detach().numpy()
 
 
 # %%
