@@ -20,7 +20,6 @@ os.makedirs("reports/output", exist_ok=True)
 os.makedirs("reports/results", exist_ok=True)
 os.makedirs("models", exist_ok=True)
 
-
 # Set matplotlib style and parameters
 plt.style.use("seaborn-v0_8-paper")
 plt.rcParams.update({
@@ -66,7 +65,7 @@ plt.rcParams.update({
 })
 
 # Device setup for CUDA or CPU
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Set random seed for reproducibility
 seed = 42
@@ -168,13 +167,14 @@ class SEIRDNet(nn.Module):
                     m.bias.data.fill_(0.01)
         self.apply(init_weights)
 
-# Function for network prediction
-def network_prediction(t, model, device, N):
+# Function for network prediction with normalization
+def network_prediction(t, model, device, feature_min, feature_max):
     t_tensor = torch.from_numpy(t).float().view(-1, 1).to(device).requires_grad_(True)
     with torch.no_grad():
         predictions = model(t_tensor)
         predictions = predictions.cpu().numpy()
-        predictions *= N  # Scale predictions by population
+        # Revert Min-Max normalization
+        predictions = predictions * (feature_max.values - feature_min.values) + feature_min.values
     return predictions
 
 # SIRD model differential equations
@@ -195,10 +195,14 @@ def prepare_tensors(data, device):
     D = tensor(data["cumulative_deceased"].values, dtype=torch.float32).view(-1, 1).to(device)
     return t, S, I, R, D
 
-# Split and scale the data into training and validation sets
+# Split and scale the data into training and validation sets using Min-Max normalization
 def split_and_scale_data(data, train_size, features, device):
-    N = data["population"].values[0]
-    data[features] /= N  # Normalize by population
+    # Initialize min and max values for each feature
+    feature_min = data[features].min()
+    feature_max = data[features].max()
+
+    # Apply Min-Max normalization
+    data[features] = (data[features] - feature_min) / (feature_max - feature_min)
 
     train_data = data.iloc[:train_size]
     val_data = data.iloc[train_size:]
@@ -211,13 +215,13 @@ def split_and_scale_data(data, train_size, features, device):
         "val": (t_val, S_val, I_val, R_val, D_val),
     }
 
-    return tensor_data, N
+    return tensor_data, feature_min, feature_max
 
 # Example features and data split
 features = ["susceptible", "active_cases", "recovered", "cumulative_deceased"]
-train_size = 50
+train_size = 200
 
-tensor_data, N = split_and_scale_data(data, train_size, features, device)
+tensor_data, feature_min, feature_max = split_and_scale_data(data, train_size, features, device)
 
 # PINN loss function
 def pinn_loss(tensor_data, parameters, model_output, t, N, train_size=None):
@@ -225,11 +229,6 @@ def pinn_loss(tensor_data, parameters, model_output, t, N, train_size=None):
 
     S_train, I_train, R_train, D_train = tensor_data["train"][1:]
     S_val, I_val, R_val, D_val = tensor_data["val"][1:]
-
-    S_total = torch.cat([S_train, S_val])
-    I_total = torch.cat([I_train, I_val])
-    R_total = torch.cat([R_train, R_val])
-    D_total = torch.cat([D_train, D_val])
 
     s_t = grad(S_pred, t, grad_outputs=torch.ones_like(S_pred), create_graph=True)[0]
     i_t = grad(I_pred, t, grad_outputs=torch.ones_like(I_pred), create_graph=True)[0]
@@ -251,10 +250,10 @@ def pinn_loss(tensor_data, parameters, model_output, t, N, train_size=None):
         index = torch.arange(len(t))
 
     data_fitting_loss = (
-        torch.mean((S_pred[index] - S_total[index]) ** 2)
-        + torch.mean((I_pred[index] - I_total[index]) ** 2)
-        + torch.mean((R_pred[index] - R_total[index]) ** 2)
-        + torch.mean((D_pred[index] - D_total[index]) ** 2)
+        torch.mean((S_pred[index] - S_train[index]) ** 2)
+        + torch.mean((I_pred[index] - I_train[index]) ** 2)
+        + torch.mean((R_pred[index] - R_train[index]) ** 2)
+        + torch.mean((D_pred[index] - D_train[index]) ** 2)
     )
 
     residual_loss = (
@@ -366,7 +365,7 @@ plt.show()
 
 # Generate predictions for the entire dataset
 t_values = np.arange(len(data))
-predictions = network_prediction(t_values, model, device, N)
+predictions = network_prediction(t_values, model, device, feature_min, feature_max)
 
 dates = data["date"]
 
@@ -377,10 +376,10 @@ R_pred = predictions[:, 2]
 D_pred = predictions[:, 3]
 
 # Actual data
-S_actual = data["susceptible"].values * N
-I_actual = data["active_cases"].values * N
-R_actual = data["recovered"].values * N
-D_actual = data["cumulative_deceased"].values * N
+S_actual = data["susceptible"].values * (feature_max["susceptible"] - feature_min["susceptible"]) + feature_min["susceptible"]
+I_actual = data["active_cases"].values * (feature_max["active_cases"] - feature_min["active_cases"]) + feature_min["active_cases"]
+R_actual = data["recovered"].values * (feature_max["recovered"] - feature_min["recovered"]) + feature_min["recovered"]
+D_actual = data["cumulative_deceased"].values * (feature_max["cumulative_deceased"] - feature_min["cumulative_deceased"]) + feature_min["cumulative_deceased"]
 
 # Define training index size
 train_index_size = len(tensor_data["train"][0])
@@ -442,20 +441,20 @@ def forecast_bias(y_true, y_pred):
     return np.mean(y_pred - y_true)
 
 # Evaluate the trained model on the dataset and calculate evaluation metrics
-def evaluate_model(model, data, device, N):
+def evaluate_model(model, data, device, feature_min, feature_max):
     model.eval()
     with torch.no_grad():
         t_values = np.arange(len(data))
-        predictions = network_prediction(t_values, model, device, N)
+        predictions = network_prediction(t_values, model, device, feature_min, feature_max)
         S_pred = predictions[:, 0]
         I_pred = predictions[:, 1]
         R_pred = predictions[:, 2]
         D_pred = predictions[:, 3]
 
-        S_actual = data["susceptible"].values * N
-        I_actual = data["active_cases"].values * N
-        R_actual = data["recovered"].values * N
-        D_actual = data["cumulative_deceased"].values * N
+        S_actual = data["susceptible"].values * (feature_max["susceptible"] - feature_min["susceptible"]) + feature_min["susceptible"]
+        I_actual = data["active_cases"].values * (feature_max["active_cases"] - feature_min["active_cases"]) + feature_min["active_cases"]
+        R_actual = data["recovered"].values * (feature_max["recovered"] - feature_min["recovered"]) + feature_min["recovered"]
+        D_actual = data["cumulative_deceased"].values * (feature_max["cumulative_deceased"] - feature_min["cumulative_deceased"]) + feature_min["cumulative_deceased"]
 
         mae_s = mean_absolute_error(S_actual, S_pred)
         mae_i = mean_absolute_error(I_actual, I_pred)
@@ -499,7 +498,7 @@ def evaluate_model(model, data, device, N):
         return results
 
 # Evaluate the model and save the results
-results = evaluate_model(model, data, device, N)
+results = evaluate_model(model, data, device, feature_min, feature_max)
 print(results)
 
 results_df = pd.DataFrame(results, index=[0])

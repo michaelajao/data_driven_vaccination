@@ -215,9 +215,7 @@ ax.legend()
 plt.show()
 
 # Load the data
-df = pd.read_csv("../../data/processed/england_data.csv").drop(
-    columns=["Unnamed: 0"], axis=1
-)
+df = pd.read_csv("../../data/processed/england_data.csv")
 
 df.head()
 
@@ -292,7 +290,7 @@ data = load_and_preprocess_data(
     "../../data/processed/england_data.csv",
     recovery_period=16,
     start_date="2020-04-01",
-).drop(columns=["Unnamed: 0"], axis=1)
+)
 
 
 # Split the data into training and validation sets
@@ -418,7 +416,7 @@ class EpiNet(nn.Module):
                 g = nn.init.calculate_gain("tanh")
                 nn.init.xavier_normal_(layer.weight, gain=g)
                 if layer.bias is not None:
-                    layer.bias.data.fill_(0)
+                    layer.bias.data.fill_(0.01)
 
         self.net.apply(init_weights)
 
@@ -455,7 +453,7 @@ class BetaNet(nn.Module):
                 g = nn.init.calculate_gain("tanh")
                 nn.init.xavier_normal_(layer.weight, gain=g)
                 if layer.bias is not None:
-                    layer.bias.data.fill_(0)
+                    layer.bias.data.fill_(0.01)
                     
         self.net.apply(init_weights)
         
@@ -464,28 +462,28 @@ class BetaNet(nn.Module):
         
         params = self.net(t)
         # beta (β) is a positive value between 0 and 1 using the sigmoid function
-        beta = torch.sigmoid(params[:, 0]) * 0.9 + 0.1
+        beta = torch.sigmoid(params[:, 0])
         
         # gamma (γ) is a positive value between 0 and 0.1 using the sigmoid function
-        gamma = torch.sigmoid(params[:, 1]) * 0.1 + 0.01
+        gamma = torch.sigmoid(params[:, 1])
         
         # delta (δ) is a positive value between 0 and 0.01 using the sigmoid function
-        delta = torch.sigmoid(params[:, 2]) * 0.01 + 0.001
+        delta = torch.sigmoid(params[:, 2])
         
         # rho (ρ) is a positive value between 0 and 0.05 using the sigmoid function
-        rho = torch.sigmoid(params[:, 3]) * 0.05 + 0.001
+        rho = torch.sigmoid(params[:, 3])
         
         # eta (η) is a positive value between 0 and 0.05 using the sigmoid function
-        eta = torch.sigmoid(params[:, 4]) * 0.05 + 0.001
+        eta = torch.sigmoid(params[:, 4])
         
         # kappa (κ) is a positive value between 0 and 0.05 using the sigmoid function
-        kappa = torch.sigmoid(params[:, 5]) * 0.05 + 0.001
+        kappa = torch.sigmoid(params[:, 5])
         
         # mu (μ) is a positive value between 0 and 0.05 using the sigmoid function
-        mu = torch.sigmoid(params[:, 6]) * 0.05 + 0.001
+        mu = torch.sigmoid(params[:, 6])
         
         # xi (ξ) is a positive value between 0 and 0.01 using the sigmoid function
-        xi = torch.sigmoid(params[:, 7]) * 0.01 + 0.001
+        xi = torch.sigmoid(params[:, 7])
         
         return params
     
@@ -512,7 +510,7 @@ class TimeVaryingNet(nn.Module):
         # self.init_glorot()
         
     def forward(self, t):
-        output = self.net(t)
+        output = torch.sigmoid(self.net(t))
         return output.get_params(output)
     
     # def init_glorot(self):
@@ -528,7 +526,7 @@ class TimeVaryingNet(nn.Module):
     def get_params(self, output):
         
         # beta (β) is a positive value between 0 and 1 using the sigmoid function
-        beta = torch.sigmoid(output[:, 0]) * 0.9 + 0.1
+        beta = torch.sigmoid(output[:, 0]) * 1
         
         # gamma (γ) is a positive value between 0 and 0.1 using the sigmoid function
         gamma = torch.sigmoid(output[:, 1]) * 0.1
@@ -573,8 +571,9 @@ def pinn_loss(tensor_data, parameters, model_output, t, N, device):
     mu_pred = parameters[:, 6].squeeze()
     xi_pred = parameters[:, 7].squeeze()
     
+    N = N / N
     
-    
+    S = N - I - R - D
     S_pred, I_pred, H_pred, C_pred, R_pred, D_pred = model_output.unbind(1)
     # S_pred, I_pred, H_pred, C_pred, R_pred, D_pred = (
     #     S_pred.view(-1),
@@ -604,22 +603,22 @@ def pinn_loss(tensor_data, parameters, model_output, t, N, device):
     
     # Loss components
     # Data loss
-    data_loss = torch.mean((I - I_pred) ** 2 + (R - R_pred) ** 2 + (D - D_pred) ** 2)
+    data_loss = torch.mean((S - S_pred) ** 2 + (I - I_pred) ** 2 + (R - R_pred) ** 2 + (D - D_pred) ** 2)
     
     # physics loss
     physics_loss = torch.mean((s_t - dSdt) ** 2 + (i_t - dIdt) ** 2 + (h_t - dHdt) ** 2 + (c_t - dCdt) ** 2 + (r_t - dRdt) ** 2 + (d_t - dDdt) ** 2)
     
     # initial condition loss
-    initial_condition_loss = torch.mean((I[0] - I_pred[0]) ** 2 + (R[0] - R_pred[0]) ** 2 + (D[0] - D_pred[0]) ** 2)
+    initial_condition_loss = torch.mean((S[0] - S_pred[0]) ** 2 + (I[0] - I_pred[0]) ** 2 + (R[0] - R_pred[0]) ** 2 + (D[0] - D_pred[0]) ** 2)
     
-    # boundary condition loss 
-    boundary_condition_loss = torch.mean((I[-1] - I_pred[-1]) ** 2 + (R[-1] - R_pred[-1]) ** 2 + (D[-1] - D_pred[-1]) ** 2)
+    # # boundary condition loss 
+    # boundary_condition_loss = torch.mean((I[-1] - I_pred[-1]) ** 2 + (R[-1] - R_pred[-1]) ** 2 + (D[-1] - D_pred[-1]) ** 2)
     
-    # regularization loss
-    reg_loss = torch.mean(beta_pred ** 2 + gamma_pred ** 2 + delta_pred ** 2 + rho_pred ** 2 + eta_pred ** 2 + kappa_pred ** 2 + mu_pred ** 2 + xi_pred ** 2)
+    # # regularization loss
+    # reg_loss = torch.mean(beta_pred ** 2 + gamma_pred ** 2 + delta_pred ** 2 + rho_pred ** 2 + eta_pred ** 2 + kappa_pred ** 2 + mu_pred ** 2 + xi_pred ** 2)
     
     # Total loss
-    loss = data_loss + physics_loss + initial_condition_loss + boundary_condition_loss + reg_loss
+    loss = data_loss + physics_loss + initial_condition_loss
     
     return loss
 
@@ -651,11 +650,11 @@ class EarlyStopping:
             
             
 # Define the model and beta net
-model = EpiNet(num_layers=10, hidden_neurons=32, output_size=6).to(device)
+model = EpiNet(num_layers=5, hidden_neurons=32, output_size=6).to(device)
 # The above code is creating an instance of a neural network model called `BetaNet` with 2 hidden
 # layers and 32 neurons in each hidden layer. The model is then moved to the specified device (e.g.,
 # GPU or CPU) for computation.
-beta_net = BetaNet(num_layers=10, hidden_neurons=32).to(device)
+beta_net = BetaNet(num_layers=5, hidden_neurons=32).to(device)
 
 # beta_net = TimeVaryingNet(num_layers=5, hidden_neurons=32, output_size=8).to(device)
 
@@ -681,7 +680,7 @@ def train_model(
     params_scheduler = StepLR(params_optimizer, step_size=5000, gamma=0.9)
     
     # Initialize the early stopping object
-    early_stopping = EarlyStopping(patience=200, verbose=verbose)
+    early_stopping = EarlyStopping(patience=20, verbose=verbose)
     
     # Initialize the loss history
     loss_history = []
@@ -740,7 +739,7 @@ model_output, parameters, loss_history = train_model(
     train_tensor_data,
     t_train,
     N,
-    lr=1e-4,
+    lr=1e-3,
     num_epochs=50000,
     device=device,
     print_every=500,
