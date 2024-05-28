@@ -93,21 +93,60 @@ def check_pytorch():
 check_pytorch()
 
 # Function to load and preprocess data
-def load_and_preprocess_data(filepath, recovery_period=16, rolling_window=7, start_date="2020-04-01", end_date="2020-05-31"):
+file_path = "data/processed/england_data.csv"
+def load_and_preprocess_data(
+    filepath,
+    rolling_window=7,
+    start_date="2020-04-01",
+    end_date="2020-05-31",
+    recovery_window=14
+):
+    """Load and preprocess the data from a CSV file."""
     df = pd.read_csv(filepath)
     df["date"] = pd.to_datetime(df["date"])
-    df = df[(df["date"] >= pd.to_datetime(start_date)) & (df["date"] <= pd.to_datetime(end_date))]
-    df["recovered"] = df["cumulative_confirmed"].shift(recovery_period) - df["cumulative_deceased"].shift(recovery_period)
-    df["active_cases"] = df["cumulative_confirmed"] - df["recovered"] - df["cumulative_deceased"]
-    df["susceptible"] = df["population"] - (df["recovered"] + df["cumulative_deceased"] + df["active_cases"])
-    cols_to_smooth = ["susceptible", "new_confirmed", "cumulative_confirmed", "cumulative_deceased", "hospitalCases", "covidOccupiedMVBeds", "recovered", "new_deceased", "active_cases"]
+    df = df[
+        (df["date"] >= pd.to_datetime(start_date))
+        & (df["date"] <= pd.to_datetime(end_date))
+    ]
+    
+    # Estimate recovery rates using a moving window
+    df["recovered"] = df["new_confirmed"].shift(recovery_window) - df["new_deceased"].shift(recovery_window)
+    df["recovered"] = df["recovered"].fillna(0).clip(lower=0)
+
+    # Calculate cumulative recovered cases
+    df["cumulative_recovered"] = df["recovered"].cumsum().fillna(0)
+
+    # Calculate active cases
+    df["active_cases"] = (
+        df["cumulative_confirmed"] - df["cumulative_recovered"] - df["cumulative_deceased"]
+    ).clip(lower=0)
+
+    # Calculate susceptible cases
+    df["susceptible"] = df["population"] - (
+        df["cumulative_recovered"] + df["cumulative_deceased"] + df["active_cases"]
+    ).clip(lower=0)
+
+    # Smooth the columns
+    cols_to_smooth = [
+        "new_confirmed",
+        "cumulative_confirmed",
+        "cumulative_deceased",
+        "hospitalCases",
+        "covidOccupiedMVBeds",
+        "new_deceased",
+        "active_cases",
+        "susceptible",
+        "cumulative_recovered",
+        "recovered"
+    ]
     for col in cols_to_smooth:
         if col in df.columns:
             df[col] = df[col].rolling(window=rolling_window, min_periods=1).mean().fillna(0)
+
     return df
 
-# Load and preprocess the data
-data = load_and_preprocess_data("data/processed/england_data.csv", recovery_period=21, rolling_window=7, start_date="2020-05-01", end_date="2020-08-31")
+# Process the data using the updated preprocessing function
+data = load_and_preprocess_data(file_path, rolling_window=7, start_date="2020-05-01", end_date="2020-08-31", recovery_window=21)
 areaname = "England"
 
 # Plot susceptible data over time to check for any trends
