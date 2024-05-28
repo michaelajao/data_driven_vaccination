@@ -680,7 +680,7 @@ def train_model(
     params_scheduler = StepLR(params_optimizer, step_size=5000, gamma=0.9)
     
     # Initialize the early stopping object
-    early_stopping = EarlyStopping(patience=20, verbose=verbose)
+    early_stopping = EarlyStopping(patience=200, verbose=verbose)
     
     # Initialize the loss history
     loss_history = []
