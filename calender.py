@@ -119,105 +119,92 @@ def create_event(
 
 
 # Define the start date
-start_date = datetime(2024, 05, 30)  # Example date, adjust as necessary
+start_date = datetime(2024, 5, 30)  # Example date, adjust as necessary
 
 # Schedule events
 events = [
     (
-        "Wake up",
-        "Start your day with some light stretching to gently wake your body up.",
+        "Wake up, Pray and Exercise",
+        "Start your day with some light stretching to gently wake your body up, followed by a short prayer and 30 minutes of low-impact activities, considering your knee.",
         start_date.replace(hour=6, minute=0),
-        0,
-        15,
-    ),
-    (
-        "Pray and Exercise",
-        "30 minutes of low-impact activities, considering your knee.",
-        start_date.replace(hour=6, minute=15),
         0,
         30,
     ),
+
     (
         "Shower and Get Ready",
         "Time to freshen up and prepare for the day.",
-        start_date.replace(hour=6, minute=45),
+        start_date.replace(hour=6, minute=30),
         0,
-        45,
+        30,
     ),
     (
         "Breakfast and coffee",
         "Start your day with a nutritious meal to fuel your morning.",
-        start_date.replace(hour=7, minute=30),
+        start_date.replace(hour=7, minute=0),
         0,
         30,
     ),
     (
-        "Bike ride to research lab",
-        "Enjoy a bike ride to the research lab and listen to a podcast on the way.",
-        start_date.replace(hour=8, minute=0),
-        0,
-        15,
-    ),
-    (
         "Research and Reading",
         "Dedicate this time to reading research papers.",
-        start_date.replace(hour=8, minute=15),
+        start_date.replace(hour=8, minute=0),
         2,
         0,
     ),
     (
         "Coding",
         "Dive into your coding projects for your research work.",
-        start_date.replace(hour=10, minute=15),
+        start_date.replace(hour=10, minute=0),
         2,
         0,
     ),
     (
         "Brunch",
         "Enjoy a hearty brunch to recharge.",
-        start_date.replace(hour=12, minute=15),  #
+        start_date.replace(hour=14, minute=0),  #
         0,
-        45,
+        30,
     ),
-    (
-        "Online Classes/Meetings",
-        "Engage with your classes or meetings with a focused mind.",
-        start_date.replace(hour=13, minute=0),
-        2,
-        0,
-    ),
+    # (
+    #     "Online Classes/Meetings",
+    #     "Engage with your classes or meetings with a focused mind.",
+    #     start_date.replace(hour=13, minute=0),
+    #     2,
+    #     0,
+    # ),
     (
         "Hackerrank Practice",
         "Spend 30 minutes on a HackerRank question.",
-        start_date.replace(hour=15, minute=0),
+        start_date.replace(hour=14, minute=30),
         0,
         30,
     ),
     (
         "Free Time/Short Break",
         "Take a brief break to relax and reset.",
-        start_date.replace(hour=15, minute=30),
+        start_date.replace(hour=15, minute=0),
         0,
-        15,
+        30,
     ),
     (
-        "Coding",
-        "Continue with your coding projects.",
-        start_date.replace(hour=15, minute=45),
+        "Research paper writing",
+        "Work on writing the research paper.",
+        start_date.replace(hour=15, minute=30),
         2,
         0,
     ),
     (
         "bike to the gym and exercise the legs",
         "1 hour of strength training and cardio exercises.",
-        start_date.replace(hour=17, minute=45),
+        start_date.replace(hour=17, minute=30),
         1,
         0,
     ),
     (
         "bike ride back home",
         "Enjoy a bike ride back home and listen to a podcast on the way.",
-        start_date.replace(hour=18, minute=45),
+        start_date.replace(hour=18, minute=30),
         0,
         15,
     ),
