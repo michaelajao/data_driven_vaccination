@@ -119,7 +119,7 @@ def create_event(
 
 
 # Define the start date
-start_date = datetime(2024, 4, 8)  # Example date, adjust as necessary
+start_date = datetime(2024, 05, 30)  # Example date, adjust as necessary
 
 # Schedule events
 events = [

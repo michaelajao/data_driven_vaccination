@@ -110,6 +110,11 @@ def load_and_preprocess_data(
         & (df["date"] <= pd.to_datetime(end_date))
     ]
     
+    # df["recovered"] = df["cumulative_confirmed"].shift(recovery_window) - df[
+    #     "cumulative_deceased"
+    # ].shift(recovery_window)
+    # df["recovered"] = df["recovered"].fillna(0).clip(lower=0)
+    
     # Estimate recovery rates using a moving window
     df["recovered"] = df["new_confirmed"].shift(recovery_window) - df["new_deceased"].shift(recovery_window)
     df["recovered"] = df["recovered"].fillna(0).clip(lower=0)
@@ -258,7 +263,7 @@ def split_and_scale_data(data, train_size, features, device):
     return tensor_data, feature_min, feature_max
 
 # Example features and data split
-features = ["susceptible", "active_cases", "recovered", "cumulative_deceased"]
+features = ["susceptible", "active_cases", "cumulative_recovered", "cumulative_deceased"]
 train_size = 200
 N = data["population"].values[0]
 tensor_data, feature_min, feature_max = split_and_scale_data(data, train_size, features, device)
@@ -269,6 +274,12 @@ def pinn_loss(tensor_data, parameters, model_output, t, N, train_size=None):
 
     S_train, I_train, R_train, D_train = tensor_data["train"][1:]
     S_val, I_val, R_val, D_val = tensor_data["val"][1:]
+    
+    s_total = torch.cat([S_train, S_val])
+    i_total = torch.cat([I_train, I_val])
+    r_total = torch.cat([R_train, R_val])
+    d_total = torch.cat([D_train, D_val])
+    
 
     s_t = grad(S_pred, t, grad_outputs=torch.ones_like(S_pred), create_graph=True)[0]
     i_t = grad(I_pred, t, grad_outputs=torch.ones_like(I_pred), create_graph=True)[0]
@@ -290,10 +301,10 @@ def pinn_loss(tensor_data, parameters, model_output, t, N, train_size=None):
         index = torch.arange(len(t))
 
     data_fitting_loss = (
-        torch.mean((S_pred[index] - S_train[index]) ** 2)
-        + torch.mean((I_pred[index] - I_train[index]) ** 2)
-        + torch.mean((R_pred[index] - R_train[index]) ** 2)
-        + torch.mean((D_pred[index] - D_train[index]) ** 2)
+        torch.mean((S_pred[index] - s_total[index]) ** 2)
+        + torch.mean((I_pred[index] - i_total[index]) ** 2)
+        + torch.mean((R_pred[index] - r_total[index]) ** 2)
+        + torch.mean((D_pred[index] - d_total[index]) ** 2)
     )
 
     residual_loss = (
@@ -353,7 +364,7 @@ model = SEIRDNet(
 ).to(device)
 
 # Initialize optimizer and scheduler
-optimizer = optim.Adam(model.parameters(), lr=1e-4)
+optimizer = optim.Adam(model.parameters(), lr=1e-3)
 scheduler = StepLR(optimizer, step_size=10000, gamma=0.1)
 
 # Initialize early stopping
@@ -418,7 +429,7 @@ D_pred = predictions[:, 3]
 # Actual data
 S_actual = data["susceptible"].values * (feature_max["susceptible"] - feature_min["susceptible"]) + feature_min["susceptible"]
 I_actual = data["active_cases"].values * (feature_max["active_cases"] - feature_min["active_cases"]) + feature_min["active_cases"]
-R_actual = data["recovered"].values * (feature_max["recovered"] - feature_min["recovered"]) + feature_min["recovered"]
+R_actual = data["cumulative_recovered"].values * (feature_max["cumulative_recovered"] - feature_min["cumulative_recovered"]) + feature_min["cumulative_recovered"]
 D_actual = data["cumulative_deceased"].values * (feature_max["cumulative_deceased"] - feature_min["cumulative_deceased"]) + feature_min["cumulative_deceased"]
 
 # Define training index size
@@ -441,7 +452,7 @@ def plot_predictions_vs_actual(dates, actual, predicted, title, ylabel, train_in
 
 plot_predictions_vs_actual(dates, S_actual, S_pred, "Susceptible Over Time", "Susceptible", train_index_size)
 plot_predictions_vs_actual(dates, I_actual, I_pred, "Active Cases Over Time", "Active Cases", train_index_size)
-plot_predictions_vs_actual(dates, R_actual, R_pred, "Recovered Over Time", "Recovered", train_index_size)
+plot_predictions_vs_actual(dates, R_actual, R_pred, "cumulative_recovered Over Time", "cumulative_recovered", train_index_size)
 plot_predictions_vs_actual(dates, D_actual, D_pred, "Deceased Over Time", "Deceased", train_index_size)
 
 # Extract the parameter values
@@ -459,7 +470,7 @@ output = pd.DataFrame({
     "date": dates,
     "susceptible": S_pred,
     "active_cases": I_pred,
-    "recovered": R_pred,
+    "cumulative_recovered": R_pred,
     "cumulative_deceased": D_pred,
 })
 output.to_csv(f"reports/output/{train_size}_pinn_{areaname}_output.csv", index=False)
@@ -493,7 +504,7 @@ def evaluate_model(model, data, device, feature_min, feature_max):
 
         S_actual = data["susceptible"].values * (feature_max["susceptible"] - feature_min["susceptible"]) + feature_min["susceptible"]
         I_actual = data["active_cases"].values * (feature_max["active_cases"] - feature_min["active_cases"]) + feature_min["active_cases"]
-        R_actual = data["recovered"].values * (feature_max["recovered"] - feature_min["recovered"]) + feature_min["recovered"]
+        R_actual = data["cumulative_recovered"].values * (feature_max["cumulative_recovered"] - feature_min["cumulative_recovered"]) + feature_min["cumulative_recovered"]
         D_actual = data["cumulative_deceased"].values * (feature_max["cumulative_deceased"] - feature_min["cumulative_deceased"]) + feature_min["cumulative_deceased"]
 
         mae_s = mean_absolute_error(S_actual, S_pred)

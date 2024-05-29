@@ -196,24 +196,25 @@ def prepare_tensors(data, device):
     t = torch.tensor(range(1, len(data) + 1), dtype=torch.float32).view(-1, 1).to(device).requires_grad_(True)
     S = torch.tensor(data["susceptible"].values, dtype=torch.float32).view(-1, 1).to(device)
     I = torch.tensor(data["active_cases"].values, dtype=torch.float32).view(-1, 1).to(device)
-    R = torch.tensor(data["recovered"].values, dtype=torch.float32).view(-1, 1).to(device)
     H = torch.tensor(data["hospitalCases"].values, dtype=torch.float32).view(-1, 1).to(device)
     C = torch.tensor(data["covidOccupiedMVBeds"].values, dtype=torch.float32).view(-1, 1).to(device)
+    R = torch.tensor(data["recovered"].values, dtype=torch.float32).view(-1, 1).to(device)
     D = torch.tensor(data["cumulative_deceased"].values, dtype=torch.float32).view(-1, 1).to(device)
-    return t, S, I, R, H, C, D
+    return t, S, I, H, C, R, D
 
-features = ["susceptible", "active_cases", "recovered", "hospitalCases", "covidOccupiedMVBeds", "cumulative_deceased"]
+features = ["susceptible", "active_cases", "hospitalCases", "covidOccupiedMVBeds", "recovered",  "cumulative_deceased"]
 scaler = MinMaxScaler()
 scaler.fit(train_data[features])
 
 scaled_train_data = pd.DataFrame(scaler.transform(train_data[features]), columns=features)
 scaled_val_data = pd.DataFrame(scaler.transform(val_data[features]), columns=features)
 
-t_train, I_train, R_train, D_train = prepare_tensors(scaled_train_data, device)
-t_val, I_val, R_val, D_val = prepare_tensors(scaled_val_data, device)
+t_train, S_train, I_train, H_train, C_train, R_train, D_train = prepare_tensors(scaled_train_data, device)
+t_val, S_val, I_val, H_val, C_val, R_val, D_val = prepare_tensors(scaled_val_data, device)
 
-train_tensor_data = torch.cat([I_train, R_train, D_train], dim=1)
-val_tensor_data = torch.cat([I_val, R_val, D_val], dim=1)
+train_tensor_data = torch.cat([S_train, I_train, H_train, C_train, R_train, D_train], dim=1)
+val_tensor_data = torch.cat([S_val, I_val, H_val, C_val, R_val, D_val], dim=1)
+
 
 plt.plot(I_train.cpu().detach().numpy(), label="Active Cases")
 plt.title("Active Cases in England")
@@ -287,14 +288,14 @@ class BetaNet(nn.Module):
 
     def forward(self, t):
         params = self.net(t)
-        beta = torch.sigmoid(params[:, 0]) * 1.0
-        gamma = torch.sigmoid(params[:, 1]) * 0.1
-        delta = torch.sigmoid(params[:, 2]) * 0.01
-        rho = torch.sigmoid(params[:, 3]) * 0.05
-        eta = torch.sigmoid(params[:, 4]) * 0.05
-        kappa = torch.sigmoid(params[:, 5]) * 0.05
-        mu = torch.sigmoid(params[:, 6]) * 0.05
-        xi = torch.sigmoid(params[:, 7]) * 0.01
+        beta = torch.sigmoid(params[:, 0])
+        gamma = torch.sigmoid(params[:, 1])
+        delta = torch.sigmoid(params[:, 2])
+        rho = torch.sigmoid(params[:, 3])
+        eta = torch.sigmoid(params[:, 4])
+        kappa = torch.sigmoid(params[:, 5])
+        mu = torch.sigmoid(params[:, 6])
+        xi = torch.sigmoid(params[:, 7])
         return torch.stack([beta, gamma, delta, rho, eta, kappa, mu, xi], dim=1)
 
     def init_xavier(self):
@@ -310,7 +311,7 @@ class BetaNet(nn.Module):
 
 
 def pinn_loss(tensor_data, parameters, model_output, t, N, device):
-    S, I, R, H, C, D = tensor_data.unbind(1)
+    S, I, H, C, R, D = tensor_data.unbind(1)
 
     beta_pred = parameters[:, 0].squeeze()
     gamma_pred = parameters[:, 1].squeeze()
@@ -324,20 +325,25 @@ def pinn_loss(tensor_data, parameters, model_output, t, N, device):
     N = N / N
 
     S_pred, I_pred, H_pred, C_pred, R_pred, D_pred = model_output.unbind(1)
-
+    
+    
+    # Compute the gradients
     s_t = grad(outputs=S_pred, inputs=t, grad_outputs=torch.ones_like(S_pred), create_graph=True)[0]
     i_t = grad(outputs=I_pred, inputs=t, grad_outputs=torch.ones_like(I_pred), create_graph=True)[0]
     h_t = grad(outputs=H_pred, inputs=t, grad_outputs=torch.ones_like(H_pred), create_graph=True)[0]
     c_t = grad(outputs=C_pred, inputs=t, grad_outputs=torch.ones_like(C_pred), create_graph=True)[0]
     r_t = grad(outputs=R_pred, inputs=t, grad_outputs=torch.ones_like(R_pred), create_graph=True)[0]
     d_t = grad(outputs=D_pred, inputs=t, grad_outputs=torch.ones_like(D_pred), create_graph=True)[0]
-
+    
+    # Compute the derivatives
     dSdt = -beta_pred * S_pred * I_pred / N
     dIdt = beta_pred * S_pred * I_pred / N - (gamma_pred + rho_pred + delta_pred) * I_pred
     dHdt = rho_pred * I_pred - (eta_pred + kappa_pred) * H_pred
     dCdt = eta_pred * H_pred - (mu_pred + xi_pred) * C_pred
     dRdt = gamma_pred * I_pred + kappa_pred * H_pred + mu_pred * C_pred
     dDdt = delta_pred * I_pred + xi_pred * C_pred
+    
+    
 
     data_loss = torch.mean((S - S_pred) ** 2 + (I - I_pred) ** 2 + (H - H_pred) ** 2 + (C - C_pred) ** 2 + (R - R_pred) ** 2 + (D - D_pred) ** 2)
     physics_loss = torch.mean((s_t - dSdt) ** 2 + (i_t - dIdt) ** 2 + (h_t - dHdt) ** 2 + (c_t - dCdt) ** 2 + (r_t - dRdt) ** 2 + (d_t - dDdt) ** 2)
