@@ -153,7 +153,7 @@ def load_and_preprocess_data(filepath, recovery_period=16, rolling_window=7, sta
     df["recovered"] = df["cumulative_confirmed"].shift(recovery_period) - df["cumulative_deceased"].shift(recovery_period)
     df["recovered"] = df["recovered"].fillna(0).clip(lower=0)
 
-    df["active_cases"] = df["cumulative_confirmed"] - df["recovered"] - df["cumulative_deceased"]
+    df["active_cases"] = df["cumulative_confirmed"] - df["recovered"] - df["cumulative_deceased"].fillna(0).clip(lower=0)
     
         # Calculate susceptible cases
     df["susceptible"] = df["population"] - (
@@ -173,13 +173,11 @@ def load_and_preprocess_data(filepath, recovery_period=16, rolling_window=7, sta
 
     df = df[df["date"] >= pd.to_datetime(start_date)].reset_index(drop=True)
 
-    df[["recovered", "active_cases"]] = df[["recovered", "active_cases"]].clip(lower=0)
-
     return df
 
 data = load_and_preprocess_data(
     "../../data/processed/england_data.csv",
-    recovery_period=16,
+    recovery_period=21,
     start_date="2020-04-01",
 )
 
@@ -196,12 +194,15 @@ val_data = data.loc[v_mask]
 
 def prepare_tensors(data, device):
     t = torch.tensor(range(1, len(data) + 1), dtype=torch.float32).view(-1, 1).to(device).requires_grad_(True)
+    S = torch.tensor(data["susceptible"].values, dtype=torch.float32).view(-1, 1).to(device)
     I = torch.tensor(data["active_cases"].values, dtype=torch.float32).view(-1, 1).to(device)
     R = torch.tensor(data["recovered"].values, dtype=torch.float32).view(-1, 1).to(device)
+    H = torch.tensor(data["hospitalCases"].values, dtype=torch.float32).view(-1, 1).to(device)
+    C = torch.tensor(data["covidOccupiedMVBeds"].values, dtype=torch.float32).view(-1, 1).to(device)
     D = torch.tensor(data["cumulative_deceased"].values, dtype=torch.float32).view(-1, 1).to(device)
-    return t, I, R, D
+    return t, S, I, R, H, C, D
 
-features = ["active_cases", "recovered", "cumulative_deceased"]
+features = ["susceptible", "active_cases", "recovered", "hospitalCases", "covidOccupiedMVBeds", "cumulative_deceased"]
 scaler = MinMaxScaler()
 scaler.fit(train_data[features])
 
@@ -309,7 +310,7 @@ class BetaNet(nn.Module):
 
 
 def pinn_loss(tensor_data, parameters, model_output, t, N, device):
-    I, R, D = tensor_data.unbind(1)
+    S, I, R, H, C, D = tensor_data.unbind(1)
 
     beta_pred = parameters[:, 0].squeeze()
     gamma_pred = parameters[:, 1].squeeze()
@@ -338,9 +339,9 @@ def pinn_loss(tensor_data, parameters, model_output, t, N, device):
     dRdt = gamma_pred * I_pred + kappa_pred * H_pred + mu_pred * C_pred
     dDdt = delta_pred * I_pred + xi_pred * C_pred
 
-    data_loss = torch.mean((I - I_pred) ** 2 + (R - R_pred) ** 2 + (D - D_pred) ** 2)
+    data_loss = torch.mean((S - S_pred) ** 2 + (I - I_pred) ** 2 + (H - H_pred) ** 2 + (C - C_pred) ** 2 + (R - R_pred) ** 2 + (D - D_pred) ** 2)
     physics_loss = torch.mean((s_t - dSdt) ** 2 + (i_t - dIdt) ** 2 + (h_t - dHdt) ** 2 + (c_t - dCdt) ** 2 + (r_t - dRdt) ** 2 + (d_t - dDdt) ** 2)
-    initial_condition_loss = torch.mean((I[0] - I_pred[0]) ** 2 + (R[0] - R_pred[0]) ** 2 + (D[0] - D_pred[0]) ** 2)
+    initial_condition_loss = torch.mean((S[0] - S_pred[0]) ** 2 + (I[0] - I_pred[0]) ** 2 + (H[0] - H_pred[0]) ** 2 + (C[0] - C_pred[0]) ** 2 + (R[0] - R_pred[0]) ** 2 + (D[0] - D_pred[0]) ** 2)
     
     loss = data_loss + physics_loss + initial_condition_loss
     return loss
