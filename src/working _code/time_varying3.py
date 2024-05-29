@@ -266,7 +266,7 @@ class EpiNet(nn.Module):
                 g = nn.init.calculate_gain("tanh")
                 nn.init.xavier_normal_(layer.weight, gain=g)
                 if layer.bias is not None:
-                    layer.bias.data.fill_(0.01)
+                    layer.bias.data.fill_(0)
 
         self.net.apply(init_weights)
 
@@ -277,50 +277,48 @@ class BetaNet(nn.Module):
         self.retain_seed = 100
         torch.manual_seed(self.retain_seed)
 
-        layers = [nn.Linear(1, hidden_neurons), nn.Tanh()]
+        layers = [nn.Linear(1, hidden_neurons), nn.ReLU()]
 
         for _ in range(num_layers - 1):
-            layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
+            layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.ReLU()])
 
         layers.append(nn.Linear(hidden_neurons, 8))
         self.net = nn.Sequential(*layers)
-        self.init_xavier()
-
+        # self.init_xavier()
+        
     def forward(self, t):
-        params = self.net(t)
-        beta = torch.sigmoid(params[:, 0])
-        gamma = torch.sigmoid(params[:, 1])
-        delta = torch.sigmoid(params[:, 2])
-        rho = torch.sigmoid(params[:, 3])
-        eta = torch.sigmoid(params[:, 4])
-        kappa = torch.sigmoid(params[:, 5])
-        mu = torch.sigmoid(params[:, 6])
-        xi = torch.sigmoid(params[:, 7])
+        return self.net(t)
+
+    def get_params(self, t):
+        raw_params = self.net(t)
+        # Apply non-negative constraints to the parameters using sigmoid
+        beta = torch.sigmoid(raw_params[:, 0]) * 0.9 + 0.1
+        gamma = torch.sigmoid(raw_params[:, 1]) * 0.1 + 0.01
+        delta = torch.sigmoid(raw_params[:, 2]) * 0.01 + 0.001
+        rho = torch.sigmoid(raw_params[:, 3]) * 0.1 + 0.01
+        eta = torch.sigmoid(raw_params[:, 4]) * 0.1 + 0.01
+        kappa = torch.sigmoid(raw_params[:, 5]) * 0.1 + 0.01
+        mu = torch.sigmoid(raw_params[:, 6]) * 0.1 + 0.01
+        xi = torch.sigmoid(raw_params[:, 7]) * 0.01 + 0.001
         return torch.stack([beta, gamma, delta, rho, eta, kappa, mu, xi], dim=1)
+    
 
-    def init_xavier(self):
-        def init_weights(layer):
-            if isinstance(layer, nn.Linear):
-                g = nn.init.calculate_gain("tanh")
-                nn.init.xavier_normal_(layer.weight, gain=g)
-                if layer.bias is not None:
-                    layer.bias.data.fill_(0.01)
+    # def init_xavier(self):
+    #     def init_weights(layer):
+    #         if isinstance(layer, nn.Linear):
+    #             g = nn.init.calculate_gain("tanh")
+    #             nn.init.xavier_normal_(layer.weight, gain=g)
+    #             if layer.bias is not None:
+    #                 layer.bias.data.fill_(0.01)
 
-        self.net.apply(init_weights)
+    #     self.net.apply(init_weights)
 
 
 
 def pinn_loss(tensor_data, parameters, model_output, t, N, device):
     S, I, H, C, R, D = tensor_data.unbind(1)
 
-    beta_pred = parameters[:, 0].squeeze()
-    gamma_pred = parameters[:, 1].squeeze()
-    delta_pred = parameters[:, 2].squeeze()
-    rho_pred = parameters[:, 3].squeeze()
-    eta_pred = parameters[:, 4].squeeze()
-    kappa_pred = parameters[:, 5].squeeze()
-    mu_pred = parameters[:, 6].squeeze()
-    xi_pred = parameters[:, 7].squeeze()
+    beta_pred, gamma_pred, delta_pred, rho_pred, eta_pred, kappa_pred, mu_pred, xi_pred = parameters.unbind(1)
 
     N = N / N
 
@@ -389,7 +387,7 @@ def train_model(
     num_epochs=1000,
     device=device,
     print_every=100,
-    weight_decay=1e-5,  # L2 regularization term
+    weight_decay=1e-2,  # L2 regularization term
     verbose=True,
 ):
     # Define the optimizers with L2 regularization
@@ -397,8 +395,8 @@ def train_model(
     params_optimizer = optim.Adam(beta_net.parameters(), lr=lr, weight_decay=weight_decay)
 
     # Define the learning rate scheduler
-    model_scheduler = StepLR(model_optimizer, step_size=10000, gamma=0.9)
-    params_scheduler = StepLR(params_optimizer, step_size=10000, gamma=0.9)
+    model_scheduler = StepLR(model_optimizer, step_size=5000, gamma=0.9)
+    params_scheduler = StepLR(params_optimizer, step_size=5000, gamma=0.9)
 
     # Initialize the early stopping object
     early_stopping = EarlyStopping(patience=200, verbose=verbose)
@@ -415,7 +413,7 @@ def train_model(
         model_output = model(t_train)
 
         # Forward pass to compute the predicted parameters
-        parameters = beta_net(t_train)
+        parameters = beta_net.get_params(t_train)
 
         # Compute the loss
         loss = pinn_loss(tensor_data, parameters, model_output, t_train, N, device)
@@ -455,7 +453,7 @@ model_output, parameters, loss_history = train_model(
     train_tensor_data,
     t_train,
     N,
-    lr=1e-3,
+    lr=1e-4,
     num_epochs=50000,
     device=device,
     print_every=500,
@@ -553,6 +551,10 @@ def plot_model_output(t_train, model_output):
 
 plot_model_output(t_train, model_output)
 
+# get the parameters predicted by the model
+parameters = beta_net.get_params(t_train)
+
+# Extract the parameter values
 beta_values, gamma_values, delta_values, rho_values, eta_values, kappa_values, mu_values, xi_values = parameters.cpu().detach().numpy().T
 
 fig, axs = plt.subplots(4, 2, figsize=(12, 12))
@@ -607,80 +609,4 @@ axs[3, 1].legend()
 plt.tight_layout()
 plt.show()
 
-def forecast_and_compare(model, initial_conditions, t_start, actual_data, steps):
-    model.eval()
-    predictions = []
-    current_input = initial_conditions
 
-    with torch.no_grad():
-        for i in range(steps):
-            output = model(current_input[:, :1])  # Use the first feature (t) as input
-            predictions.append(output.cpu().numpy().flatten())
-            current_input = output
-
-    predictions = np.array(predictions)
-
-    plt.figure(figsize=(12, 6))
-    plt.plot(t_start + np.arange(steps), predictions[:, 1], 'r--', label='Forecasted Active Cases')
-    plt.plot(t_start + np.arange(steps), actual_data.cpu().numpy()[:, 0], 'b-', label='Actual Active Cases')
-    plt.title('Forecasted vs Actual Active Cases')
-    plt.xlabel('Time (days since start)')
-    plt.ylabel('Number of Active Cases')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
-    return predictions, actual_data.cpu().numpy()
-
-# Ensure last_known_conditions is reshaped correctly
-last_known_conditions = torch.cat([t_train[-1:], I_train[-1:], R_train[-1:], D_train[-1:]], dim=1)
-last_known_conditions = last_known_conditions.view(1, -1)
-
-# Start forecasting from the end of the training data
-validation_start_day = len(t_train)
-
-# Run forecasting and comparison
-predicted_cases, actual_cases = forecast_and_compare(
-    model,
-    last_known_conditions,
-    validation_start_day,
-    val_tensor_data,
-    len(t_val)
-)
-
-
-def predict_and_compare(model, initial_conditions, actual_data, steps):
-    model.eval()
-    predictions = []
-    current_input = initial_conditions.to(device)
-    current_input = current_input.view(1, -1)
-
-    with torch.no_grad():
-        for i in range(steps):
-            output = model(current_input)
-            predictions.append(output.cpu().numpy().flatten())
-            current_input = output
-
-    predictions = np.array(predictions)
-
-    plt.figure(figsize=(12, 6))
-    plt.plot(np.arange(steps), predictions[:, 1], 'r--', label='Forecasted Active Cases')
-    plt.plot(np.arange(steps), actual_data[:, 0], 'b-', label='Actual Active Cases')
-    plt.title('Forecasted vs Actual Active Cases')
-    plt.xlabel('Time (days since start)')
-    plt.ylabel('Number of Active Cases')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
-    return predictions, actual_data
-
-last_known_conditions = torch.cat([I_train[-1:], R_train[-1:], D_train[-1:]], dim=1)
-last_known_conditions = last_known_conditions.view(1, -1)
-
-predicted_cases, actual_cases = predict_and_compare(
-    model,
-    last_known_conditions,
-    val_tensor_data.cpu().numpy(),
-    50
-)
