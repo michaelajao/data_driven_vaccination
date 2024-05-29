@@ -14,7 +14,8 @@ from torch.optim.lr_scheduler import StepLR
 from torch import tensor
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-os.chdir("/Users/ajaoo/Desktop/Projects/data_driven_vaccination")
+# os.chdir("/Users/ajaoo/Desktop/Projects/data_driven_vaccination")
+os.chdir("/home/olarinoyem/Research/data_driven_vaccination")
 
 os.makedirs("reports/output", exist_ok=True)
 os.makedirs("reports/results", exist_ok=True)
@@ -151,7 +152,7 @@ areaname = "England"
 
 # Plot susceptible data over time to check for any trends
 plt.figure()
-plt.plot(data["date"], data["recovered"], label="recovered")
+plt.plot(data["date"], data["cumulative_recovered"], label="cumulative_recovered")
 plt.xlabel("Date")
 plt.ylabel("recovered")
 plt.title(f"Recovered Over Time in {areaname}")
@@ -230,7 +231,7 @@ def prepare_tensors(data, device):
     t = tensor(np.arange(1, len(data) + 1), dtype=torch.float32).view(-1, 1).to(device).requires_grad_(True)
     S = tensor(data["susceptible"].values, dtype=torch.float32).view(-1, 1).to(device)
     I = tensor(data["active_cases"].values, dtype=torch.float32).view(-1, 1).to(device)
-    R = tensor(data["recovered"].values, dtype=torch.float32).view(-1, 1).to(device)
+    R = tensor(data["cumulative_recovered"].values, dtype=torch.float32).view(-1, 1).to(device)
     D = tensor(data["cumulative_deceased"].values, dtype=torch.float32).view(-1, 1).to(device)
     return t, S, I, R, D
 
@@ -259,7 +260,7 @@ def split_and_scale_data(data, train_size, features, device):
 # Example features and data split
 features = ["susceptible", "active_cases", "recovered", "cumulative_deceased"]
 train_size = 200
-
+N = data["population"].values[0]
 tensor_data, feature_min, feature_max = split_and_scale_data(data, train_size, features, device)
 
 # PINN loss function
