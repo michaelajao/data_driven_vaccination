@@ -13,8 +13,8 @@ from scipy.integrate import solve_ivp
 # Set the random seed for reproducibility
 plt.style.use("seaborn-v0_8-poster")
 plt.rcParams.update({
-    "font.family": "sans-serif",
-    "font.sans-serif": ["Arial"],
+    # "font.family": "sans-serif",
+    # "font.sans-serif": ["Arial"],
     "font.size": 14,
     "text.usetex": False,
     "figure.figsize": [8, 5],
