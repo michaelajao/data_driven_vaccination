@@ -30,42 +30,88 @@ import seaborn as sns
     
 # })
 
+plt.style.use("seaborn-v0_8-poster")
 plt.rcParams.update({
-    # Font settings for clarity and compatibility with academic publications
-    "font.family": "serif",  # Consistent font family
-    # "font.serif": ["Times", "Computer Modern Roman"],  # Preferred serif fonts
-    "font.size": 14,  # Base font size for better readability
-    "text.usetex": False,  # Enable LaTeX for text rendering for a professional look
-
-    # Figure aesthetics & size for detailed visuals and fit on publication pages
-    "figure.figsize": (15, 8),  # Adjusted figure size for a balance between detail and fit
-    "figure.facecolor": "white",  # White figure background for clean print
-    "figure.autolayout": True,  # Enable automatic layout adjustments
-    "figure.dpi": 400,  # High resolution figures
-    "savefig.dpi": 400,  # High resolution saving settings
-    "savefig.format": "pdf",  # Save figures in PDF format for publications
-    "savefig.bbox": "tight",  # Tight bounding box around figures
-
-    # Axes aesthetics for clarity and precision
-    "axes.labelsize": 14,  # Clear labeling with larger font size
-    "axes.titlesize": 20,  # Prominent titles for immediate recognition
-    "axes.facecolor": "white",  # White axes background
-
-    # Legend aesthetics for distinguishing plot elements
-    "legend.fontsize": 12,  # Readable legend font size
-    "legend.frameon": False,  # No frame around legend for cleaner look
-    "legend.loc": "best",  # Optimal legend positioning
-
-    # Line aesthetics for clear visual distinctions
-    "lines.linewidth": 2,  # Thicker lines for visibility
-    "lines.markersize": 8,  # Slightly smaller markers for balance
-
-    # Tick label sizes for readability
-    "xtick.labelsize": 12, 
+    # "font.family": "sans-serif",
+    # "font.sans-serif": ["Arial"],
+    "font.size": 14,
+    "text.usetex": False,
+    "figure.figsize": [15, 8],
+    "figure.facecolor": "white",
+    "figure.autolayout": True,
+    "figure.dpi": 600,
+    "savefig.dpi": 600,
+    "savefig.format": "pdf",
+    "savefig.bbox": "tight",
+    "axes.labelweight": "bold",
+    "axes.titleweight": "bold",
+    "axes.labelsize": 12,
+    "axes.titlesize": 18,
+    "axes.facecolor": "white",
+    "axes.grid": True,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "axes.formatter.limits": (0, 5),
+    "axes.formatter.use_mathtext": True,
+    "axes.formatter.useoffset": False,
+    "axes.xmargin": 0,
+    "axes.ymargin": 0,
+    "legend.fontsize": 12,
+    "legend.frameon": False,
+    "legend.loc": "best",
+    "lines.linewidth": 2,
+    "lines.markersize": 8,
+    "xtick.labelsize": 12,
+    "xtick.direction": "in",
+    "xtick.top": False,
     "ytick.labelsize": 12,
-    "xtick.direction": "in",  # Ticks inside the plot
-    "ytick.direction": "in",  # Ticks inside the plot
+    "ytick.direction": "in",
+    "ytick.right": False,
+    "grid.color": "grey",
+    "grid.linestyle": "--",
+    "grid.linewidth": 0.5,
+    "errorbar.capsize": 4,
+    "figure.subplot.wspace": 0.4,
+    "figure.subplot.hspace": 0.4,
+    "image.cmap": "viridis",
 })
+
+# plt.rcParams.update({
+#     # Font settings for clarity and compatibility with academic publications
+#     "font.family": "serif",  # Consistent font family
+#     # "font.serif": ["Times", "Computer Modern Roman"],  # Preferred serif fonts
+#     "font.size": 14,  # Base font size for better readability
+#     "text.usetex": False,  # Enable LaTeX for text rendering for a professional look
+
+#     # Figure aesthetics & size for detailed visuals and fit on publication pages
+#     "figure.figsize": (15, 8),  # Adjusted figure size for a balance between detail and fit
+#     "figure.facecolor": "white",  # White figure background for clean print
+#     "figure.autolayout": True,  # Enable automatic layout adjustments
+#     "figure.dpi": 400,  # High resolution figures
+#     "savefig.dpi": 400,  # High resolution saving settings
+#     "savefig.format": "pdf",  # Save figures in PDF format for publications
+#     "savefig.bbox": "tight",  # Tight bounding box around figures
+
+#     # Axes aesthetics for clarity and precision
+#     "axes.labelsize": 14,  # Clear labeling with larger font size
+#     "axes.titlesize": 20,  # Prominent titles for immediate recognition
+#     "axes.facecolor": "white",  # White axes background
+
+#     # Legend aesthetics for distinguishing plot elements
+#     "legend.fontsize": 12,  # Readable legend font size
+#     "legend.frameon": False,  # No frame around legend for cleaner look
+#     "legend.loc": "best",  # Optimal legend positioning
+
+#     # Line aesthetics for clear visual distinctions
+#     "lines.linewidth": 2,  # Thicker lines for visibility
+#     "lines.markersize": 8,  # Slightly smaller markers for balance
+
+#     # Tick label sizes for readability
+#     "xtick.labelsize": 12, 
+#     "ytick.labelsize": 12,
+#     "xtick.direction": "in",  # Ticks inside the plot
+#     "ytick.direction": "in",  # Ticks inside the plot
+# })
 
 
 plt.rcParams.keys()
@@ -235,3 +281,18 @@ plt.tight_layout()
 plt.savefig("../../reports/figures/cases_2020_2021_in_england_with_lockdown_periods.pdf")
 # Display the plot
 plt.show()
+
+# # Plotting capacity vs. demand for ICU beds
+for start, end in lockdown_periods:
+    plt.axvspan(pd.Timestamp(start), pd.Timestamp(end), color="grey", alpha=0.2, label='Lockdown Periods' if start == '2020-03-23' else "")
+    
+plt.plot(england_data['date'], england_data['covidOccupiedMVBeds'], label='Covid Occupied MV Beds', color='blue')
+plt.plot(england_data['date'], england_data['newAdmissions'], label='New admission to hospitals', color='red')
+plt.xlabel('Date')
+plt.xticks(rotation=45)
+plt.ylabel('Number of Beds')
+plt.legend()
+plt.savefig("../../reports/figures/covid_occupied_mv_beds_vs_new_admissions.pdf")
+plt.show()
+
+
