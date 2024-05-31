@@ -143,17 +143,17 @@ def load_preprocess_data(filepath, areaname, recovery_period=16, rolling_window=
         df[col] = df[col].rolling(window=rolling_window, min_periods=1).mean().fillna(0)
         
     # normalize the data with the population
-    df["cumulative_confirmed"] = df["cumulative_confirmed"] / df["population"]
-    df["cumulative_deceased"] = df["cumulative_deceased"] / df["population"]
-    df["hospitalCases"] = df["hospitalCases"] / df["population"]
-    df["covidOccupiedMVBeds"] = df["covidOccupiedMVBeds"] / df["population"]
-    df["new_deceased"] = df["new_deceased"] / df["population"]
-    df["new_confirmed"] = df["new_confirmed"] / df["population"]
-    df["recovered"] = df["recovered"] / df["population"]
-    df["population"] = df["population"] / df["population"]
-    df["susceptible"] = df["susceptible"] / df["population"]
-    df["newAdmissions"] = df["newAdmissions"] / df["population"]
-    df["cumAdmissions"] = df["cumAdmissions"] / df["population"]
+    # df["cumulative_confirmed"] = df["cumulative_confirmed"] / df["population"]
+    # df["cumulative_deceased"] = df["cumulative_deceased"] / df["population"]
+    # df["hospitalCases"] = df["hospitalCases"] / df["population"]
+    # df["covidOccupiedMVBeds"] = df["covidOccupiedMVBeds"] / df["population"]
+    # df["new_deceased"] = df["new_deceased"] / df["population"]
+    # df["new_confirmed"] = df["new_confirmed"] / df["population"]
+    # df["recovered"] = df["recovered"] / df["population"]
+    # df["population"] = df["population"] / df["population"]
+    # df["susceptible"] = df["susceptible"] / df["population"]
+    # df["newAdmissions"] = df["newAdmissions"] / df["population"]
+    # df["cumAdmissions"] = df["cumAdmissions"] / df["population"]
     
     return df
 
@@ -298,7 +298,7 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size):
     
     # Compute the total number of exposed and infectious individuals
     # exposed os 30% more than the infected
-    E_total = (Is_total) * 3.0
+    E_total = torch.zeros_like(Is_total)  # Initialize as a tensor of zeros
     Ia_total = torch.zeros_like(Is_total)  # Initialize as a tensor of zeros
     S_total = N - E_total - Ia_total - Is_total - H_total - C_total - R_total - D_total
     
@@ -349,7 +349,7 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size):
         torch.mean((S_pred[index] - S_total[index]) ** 2)
         + torch.mean((E_pred[index] - E_total[index]) ** 2)
         + torch.mean((Is_pred[index] - Is_total[index]) ** 2)
-        # + torch.mean((Ia_pred[index] - Ia_total[index]) ** 2)
+        + torch.mean((Ia_pred[index] - Ia_total[index]) ** 2)
         + torch.mean((H_pred[index] - H_total[index]) ** 2)
         + torch.mean((C_pred[index] - C_total[index]) ** 2)
         + torch.mean((D_pred[index] - D_total[index]) ** 2)
