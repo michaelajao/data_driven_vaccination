@@ -165,12 +165,11 @@ plt.show()
 
 def prepare_tensors(data, device):
     """Prepare tensors for training."""
-    t = tensor(np.arange(1, len(data) + 1), dtype=torch.float32).view(-1, 1).to(device).requires_grad_(True)
     I = tensor(data["new_confirmed"].values, dtype=torch.float32).view(-1, 1).to(device)
     H = tensor(data["newAdmissions"].values, dtype=torch.float32).view(-1, 1).to(device)
     C = tensor(data["covidOccupiedMVBeds"].values, dtype=torch.float32).view(-1, 1).to(device)
     D = tensor(data["new_deceased"].values, dtype=torch.float32).view(-1, 1).to(device)
-    return t, I, H, C, D
+    return I, H, C, D
 
 def split_and_scale_data(data, train_size, features, device):
     """Split and scale data into training and validation sets."""
@@ -183,12 +182,12 @@ def split_and_scale_data(data, train_size, features, device):
     scaled_train_data = pd.DataFrame(scaler.transform(train_data[features]), columns=features)
     scaled_val_data = pd.DataFrame(scaler.transform(val_data[features]), columns=features)
 
-    t_train, I_train, H_train, C_train, D_train = prepare_tensors(scaled_train_data, device)
-    t_val, I_val, H_val, C_val, D_val = prepare_tensors(scaled_val_data, device)
+    I_train, H_train, C_train, D_train = prepare_tensors(scaled_train_data, device)
+    I_val, H_val, C_val, D_val = prepare_tensors(scaled_val_data, device)
 
     tensor_data = {
-        "train": (t_train, I_train, H_train, C_train, D_train),
-        "val": (t_val, I_val, H_val, C_val, D_val),
+        "train": (I_train, H_train, C_train, D_train),
+        "val": (I_val, H_val, C_val, D_val),
     }
     
     return tensor_data, scaler
