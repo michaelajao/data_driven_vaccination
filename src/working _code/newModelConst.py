@@ -15,11 +15,13 @@ from sklearn.preprocessing import MinMaxScaler
 from torch import tensor
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-
 # Ensure the folders exist
 os.makedirs("../../models", exist_ok=True)
 os.makedirs("../../reports/figures", exist_ok=True)
 os.makedirs("../../reports/results", exist_ok=True)
+
+# Set CUDA_LAUNCH_BLOCKING for debugging
+os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
 # Device setup for CUDA or CPU
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -32,7 +34,6 @@ if torch.cuda.is_available():
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 np.random.seed(seed)
-
 
 def check_pytorch():
     """Check PyTorch and CUDA setup."""
@@ -47,7 +48,6 @@ def check_pytorch():
             print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
     else:
         print("CUDA not available. PyTorch will run on CPU.")
-
 
 check_pytorch()
 
@@ -113,8 +113,7 @@ def seird_model(y, t, N, beta, alpha, rho, ds, da, omega, dH, mu, gamma_c, delta
     
     return [dSdt, dEdt, dIsdt, dIadt, dHdt, dCdt, dRdt, dDdt]
 
-
-def load_preprocess_data(filepath, areaname, rolling_window=7, end_date=None):
+def load_preprocess_data(filepath, areaname, recovery_period=16, rolling_window=7, end_date=None):
     """Load and preprocess the COVID-19 data."""
     df = pd.read_csv(filepath)
     
@@ -127,14 +126,19 @@ def load_preprocess_data(filepath, areaname, rolling_window=7, end_date=None):
     # Convert the date column to datetime
     df["date"] = pd.to_datetime(df["date"])
     
+    
+    # calculate the recovered column from data
+    df["recovered"] = df["cumulative_confirmed"].shift(recovery_period) - df["cumulative_deceased"].shift(recovery_period)
+    df["recovered"] = df["recovered"].fillna(0).clip(lower=0)
+    
     # select data up to the end_date
     if end_date:
         df = df[df["date"] <= end_date]
         
     # calculate the susceptible column from data
-    df["susceptible"] = df["population"] - df["cumulative_confirmed"] - df["cumulative_deceased"]
+    df["susceptible"] = df["population"] - df["cumulative_confirmed"] - df["cumulative_deceased"] - df["recovered"]
     
-    cols_to_smooth = ["susceptible", "cumulative_confirmed", "cumulative_deceased", "hospitalCases", "covidOccupiedMVBeds", "new_deceased", "new_confirmed", "newAdmissions", "cumAdmissions"]
+    cols_to_smooth = ["susceptible", "cumulative_confirmed", "cumulative_deceased", "hospitalCases", "covidOccupiedMVBeds", "new_deceased", "new_confirmed", "newAdmissions", "cumAdmissions", "recovered"]
     for col in cols_to_smooth:
         df[col] = df[col].rolling(window=rolling_window, min_periods=1).mean().fillna(0)
         
@@ -145,6 +149,7 @@ def load_preprocess_data(filepath, areaname, rolling_window=7, end_date=None):
     df["covidOccupiedMVBeds"] = df["covidOccupiedMVBeds"] / df["population"]
     df["new_deceased"] = df["new_deceased"] / df["population"]
     df["new_confirmed"] = df["new_confirmed"] / df["population"]
+    df["recovered"] = df["recovered"] / df["population"]
     df["population"] = df["population"] / df["population"]
     df["susceptible"] = df["susceptible"] / df["population"]
     df["newAdmissions"] = df["newAdmissions"] / df["population"]
@@ -152,7 +157,7 @@ def load_preprocess_data(filepath, areaname, rolling_window=7, end_date=None):
     
     return df
 
-data = load_preprocess_data("../../data/processed/merged_data.csv", "London", rolling_window=7, end_date="2020-08-31")
+data = load_preprocess_data("../../data/processed/merged_data.csv", "London", recovery_period=21, rolling_window=7, end_date="2020-08-31")
 
 plt.plot(data["date"], data["new_deceased"])
 plt.title("New Deceased over time")
@@ -169,7 +174,9 @@ def prepare_tensors(data, device):
     H = tensor(data["newAdmissions"].values, dtype=torch.float32).view(-1, 1).to(device)
     C = tensor(data["covidOccupiedMVBeds"].values, dtype=torch.float32).view(-1, 1).to(device)
     D = tensor(data["new_deceased"].values, dtype=torch.float32).view(-1, 1).to(device)
-    return I, H, C, D
+    R = tensor(data["recovered"].values, dtype=torch.float32).view(-1, 1).to(device)
+    return I, H, C, D, R
+
 
 def split_and_scale_data(data, train_size, features, device):
     """Split and scale data into training and validation sets."""
@@ -182,17 +189,18 @@ def split_and_scale_data(data, train_size, features, device):
     scaled_train_data = pd.DataFrame(scaler.transform(train_data[features]), columns=features)
     scaled_val_data = pd.DataFrame(scaler.transform(val_data[features]), columns=features)
 
-    I_train, H_train, C_train, D_train = prepare_tensors(scaled_train_data, device)
-    I_val, H_val, C_val, D_val = prepare_tensors(scaled_val_data, device)
+    Is_train, H_train, C_train, D_train, R_train = prepare_tensors(scaled_train_data, device)
+    Is_val, H_val, C_val, D_val, R_val = prepare_tensors(scaled_val_data, device)
 
     tensor_data = {
-        "train": (I_train, H_train, C_train, D_train),
-        "val": (I_val, H_val, C_val, D_val),
+        "train": (Is_train, H_train, C_train, D_train, R_train),
+        "val": (Is_val, H_val, C_val, D_val, R_val),
     }
     
     return tensor_data, scaler
 
-features = ["new_confirmed", "newAdmissions", "covidOccupiedMVBeds", "new_deceased"]
+
+features = ["new_confirmed", "newAdmissions", "covidOccupiedMVBeds", "new_deceased", "recovered"]
 
 # set the train size in days
 train_size = 60
@@ -265,6 +273,8 @@ class StateNN(nn.Module):
                     m.bias.data.fill_(0.01)
         self.apply(init_weights)
 
+
+
 # Update the loss function to include eta
 def einn_loss(model_output, tensor_data, parameters, t, train_size):
     """Compute the loss function for the EINN model."""
@@ -273,21 +283,23 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size):
     S_pred, E_pred, Ia_pred, Is_pred, H_pred, C_pred, R_pred, D_pred = torch.split(model_output, 1, dim=1)
     
     # Extract training and validation data from tensor_data
-    Is_train, H_train, C_train, D_train = tensor_data["train"]
-    Is_val, H_val, C_val, D_val = tensor_data["val"]
+    Is_train, H_train, C_train, D_train, R_train = tensor_data["train"]
+    Is_val, H_val, C_val, D_val, R_val = tensor_data["val"]
     
     # Normalize the data
-    N = 1.0
+    N = 1
     
     # Combine training and validation data for total data
-    Is_total = torch.cat([Is_train, Is_val], dim=0)
-    H_total = torch.cat([H_train, H_val], dim=0)
-    C_total = torch.cat([C_train, C_val], dim=0)
-    D_total = torch.cat([D_train, D_val], dim=0)
+    Is_total = torch.cat([Is_train, Is_val])
+    H_total = torch.cat([H_train, H_val])
+    C_total = torch.cat([C_train, C_val])
+    D_total = torch.cat([D_train, D_val])
+    R_total = torch.cat([R_train, R_val])
     
-    E_total = Is_total[0]
-    Ia_total = 0.0
-    R_total = 0.0
+    # Compute the total number of exposed and infectious individuals
+    # exposed os 30% more than the infected
+    E_total = (Is_total) * 3.0
+    Ia_total = torch.zeros_like(Is_total)  # Initialize as a tensor of zeros
     S_total = N - E_total - Ia_total - Is_total - H_total - C_total - R_total - D_total
     
     # Constants based on the table provided
@@ -316,26 +328,28 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size):
     D_t = grad(D_pred, t, grad_outputs=torch.ones_like(D_pred), create_graph=True)[0]
     
     # Compute the differential equations
-    dSdt, dEdt, dIadt, dIsdt, dHdt, dCdt, dRdt, dDdt = seird_model(
-        [S_pred, E_pred, Is_pred, Ia_pred, H_pred, C_pred, R_pred, D_pred],
-        t, N, beta, alpha, rho, d_s, d_a, omega, d_h, mu, gamma_c, delta_c, eta
-    )
+    dSdt = -beta * (Is_total + Ia_total) / N * S_total + eta * R_total
+    dEdt = beta * (Is_total + Ia_total) / N * S_total - alpha * E_total
+    dIsdt = alpha * rho * E_total - d_s * Is_total
+    dIadt = alpha * (1 - rho) * E_total - d_a * Ia_total
+    dHdt = d_s * omega * Is_total - d_h * H_total - mu * H_total
+    dCdt = d_h * (1 - omega) * H_total - gamma_c * C_total - delta_c * C_total
+    dRdt = d_s * (1 - omega) * Is_total + d_a * Ia_total + d_h * (1 - mu) * H_total + gamma_c * C_total - eta * R_total
+    dDdt = mu * H_total + delta_c * C_total
     
+    # Randomly shuffle the indices
     if train_size is not None:
         index = torch.randperm(train_size)
     else:
         index = torch.arange(len(t))
         
-    # Ensure indices are within bounds
-    index = index[index < len(S_total)]
-    
     # Compute the loss function
     # data loss
     data_loss = (
         torch.mean((S_pred[index] - S_total[index]) ** 2)
         + torch.mean((E_pred[index] - E_total[index]) ** 2)
         + torch.mean((Is_pred[index] - Is_total[index]) ** 2)
-        + torch.mean((Ia_pred[index] - Ia_total[index]) ** 2)
+        # + torch.mean((Ia_pred[index] - Ia_total[index]) ** 2)
         + torch.mean((H_pred[index] - H_total[index]) ** 2)
         + torch.mean((C_pred[index] - C_total[index]) ** 2)
         + torch.mean((D_pred[index] - D_total[index]) ** 2)
@@ -355,7 +369,7 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size):
     )
     
     # Initial condition loss
-    S0, E0, Ia0, Is0, H0, C0, R0, D0 = S_total[0], E_total[0], Ia_total, Is_total[0], H_total[0], C_total[0], R_total, D_total[0]
+    S0, E0, Ia0, Is0, H0, C0, R0, D0 = S_total[0], E_total[0], Ia_total[0], Is_total[0], H_total[0], C_total[0], R_total[0], D_total[0]
     initial_loss = (
         (S_pred[0] - S0) ** 2
         + (E_pred[0] - E0) ** 2
@@ -371,6 +385,7 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size):
     loss = data_loss + residual_loss + initial_loss
     
     return loss
+
 
 
 # early stopping
@@ -450,7 +465,7 @@ def train_model(model, optimizer, scheduler, earlystopping, num_epochs, t, tenso
         model_output = model(t)
         
         # Compute the loss function
-        loss = einn_loss(model_output, tensor_data, model, t, len(index))
+        loss = einn_loss(model_output, tensor_data, model, t, train_size=len(index))
         
         # Backward pass
         loss.backward()
@@ -470,7 +485,6 @@ def train_model(model, optimizer, scheduler, earlystopping, num_epochs, t, tenso
             print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {loss.item():.6f}")
             
     return loss_history, model
-
 
 loss_history, model = train_model(model, optimizer, scheduler, earlystopping, num_epochs, t, tensor_data, index, loss_history)
 
