@@ -13,7 +13,7 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
 from sklearn.preprocessing import MinMaxScaler
 from torch import tensor
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
 
 # Ensure the folders exist
 os.makedirs("../../models", exist_ok=True)
@@ -98,6 +98,37 @@ plt.rcParams.update(
     }
 )
 
+def mean_absolute_percentage_error(y_true, y_pred):
+    """Calculate the Mean Absolute Percentage Error (MAPE)."""
+    return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+
+def normalized_root_mean_square_error(y_true, y_pred):
+    """Calculate the Normalized Root Mean Square Error (NRMSE)."""
+    return np.sqrt(mean_squared_error(y_true, y_pred)) / (np.max(y_true) - np.min(y_true))
+
+def mean_absolute_scaled_error(y_true, y_pred, y_train):
+    """Calculate the Mean Absolute Scaled Error (MASE)."""
+    n = len(y_train)
+    d = np.abs(np.diff(y_train)).sum() / (n - 1)
+    errors = np.abs(y_true - y_pred)
+    return errors.mean() / d
+
+def calculate_errors(y_true, y_pred, y_train):
+    """Calculate and print various error metrics."""
+    mape = mean_absolute_percentage_error(y_true, y_pred)
+    nrmse = normalized_root_mean_square_error(y_true, y_pred)
+    mase = mean_absolute_scaled_error(y_true, y_pred, y_train)
+    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+    mae = mean_absolute_error(y_true, y_pred)
+
+    print(f"Mean Absolute Percentage Error (MAPE): {mape:.2f}%")
+    print(f"Normalized Root Mean Square Error (NRMSE): {nrmse:.4f}")
+    print(f"Mean Absolute Scaled Error (MASE): {mase:.4f}")
+    print(f"Root Mean Square Error (RMSE): {rmse:.4f}")
+    print(f"Mean Absolute Error (MAE): {mae:.4f}")
+
+    return mape, nrmse, mase, rmse, mae
+
 # Define the SEIRD model differential equations
 def seird_model(y, t, N, beta, alpha, rho, ds, da, omega, dH, mu, gamma_c, delta_c, eta):
     S, E, Is, Ia, H, C, R, D = y
@@ -113,6 +144,8 @@ def seird_model(y, t, N, beta, alpha, rho, ds, da, omega, dH, mu, gamma_c, delta
     
     return [dSdt, dEdt, dIsdt, dIadt, dHdt, dCdt, dRdt, dDdt]
 
+
+areaname = "London"
 def load_preprocess_data(filepath, areaname, recovery_period=16, rolling_window=7, end_date=None):
     """Load and preprocess the COVID-19 data."""
     df = pd.read_csv(filepath)
@@ -157,7 +190,7 @@ def load_preprocess_data(filepath, areaname, recovery_period=16, rolling_window=
     
     return df
 
-data = load_preprocess_data("../../data/processed/merged_data.csv", "London", recovery_period=21, rolling_window=7, end_date="2020-08-31")
+data = load_preprocess_data("../../data/processed/merged_data.csv", areaname, recovery_period=21, rolling_window=7, end_date="2020-08-31")
 
 plt.plot(data["date"], data["new_deceased"])
 plt.title("New Deceased over time")
@@ -236,31 +269,31 @@ class StateNN(nn.Module):
         self.init_xavier()
 
     def forward(self, t):
-        return torch.sigmoid(self.net(t))
+        return self.net(t)
 
     @property
     def beta(self):
-        return torch.sigmoid(self._beta)
+        return torch.sigmoid(self._beta) *  0.9 + 0.1
 
     @property
     def omega(self):
-        return torch.sigmoid(self._omega)
+        return torch.sigmoid(self._omega) * 0.09 + 0.01
 
     @property
     def delta(self):
-        return torch.sigmoid(self._mu)
+        return torch.sigmoid(self._mu) * 0.09 + 0.01
     
     @property
     def gamma_c(self):
-        return torch.sigmoid(self._gamma_c)
+        return torch.sigmoid(self._gamma_c) * 0.09 + 0.01
     
     @property
     def delta_c(self):
-        return torch.sigmoid(self._delta_c)
+        return torch.sigmoid(self._delta_c) * 0.09 + 0.01
     
     @property
     def eta(self):
-        return torch.sigmoid(self._eta)
+        return torch.sigmoid(self._eta) * 0.09 + 0.01
     
 
     def init_xavier(self):
@@ -275,9 +308,8 @@ class StateNN(nn.Module):
 
 
 
-# Update the loss function to include eta
-def einn_loss(model_output, tensor_data, parameters, t, train_size):
-    """Compute the loss function for the EINN model."""
+def einn_loss(model_output, tensor_data, parameters, t, train_size, model, lambda_reg=1e-4):
+    """Compute the loss function for the EINN model with L2 regularization."""
     
     # Split the model output into the different compartments
     S_pred, E_pred, Ia_pred, Is_pred, H_pred, C_pred, R_pred, D_pred = torch.split(model_output, 1, dim=1)
@@ -297,7 +329,6 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size):
     R_total = torch.cat([R_train, R_val])
     
     # Compute the total number of exposed and infectious individuals
-    # exposed os 30% more than the infected
     E_total = torch.zeros_like(Is_total)  # Initialize as a tensor of zeros
     Ia_total = torch.zeros_like(Is_total)  # Initialize as a tensor of zeros
     S_total = N - E_total - Ia_total - Is_total - H_total - C_total - R_total - D_total
@@ -381,8 +412,13 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size):
         + (D_pred[0] - D0) ** 2
     )
     
+    # L2 regularization term
+    l2_reg = torch.tensor(0.).to(device)
+    for param in model.parameters():
+        l2_reg += torch.norm(param)
+
     # total loss
-    loss = data_loss + residual_loss + initial_loss
+    loss = data_loss + residual_loss + initial_loss + lambda_reg * l2_reg
     
     return loss
 
@@ -417,16 +453,6 @@ class EarlyStopping:
             self.counter = 0
             self.best_model = model.state_dict()
 
-# Network prediction         
-def network_prediction(t, model, device, scaler, N):
-    """Generate predictions from the SEIRDNet model."""
-    t_tensor = torch.from_numpy(t).float().view(-1, 1).to(device).requires_grad_(True)
-
-    with torch.no_grad():
-        predictions = model(t_tensor).cpu().numpy()
-        predictions = scaler.inverse_transform(predictions)
-
-    return predictions
 
 model = StateNN(
     inverse=True,
@@ -437,12 +463,12 @@ model = StateNN(
     init_delta=0.01,
     init_eta=0.01,
     retrain_seed=seed,
-    num_layers=5,
+    num_layers=8,
     hidden_neurons=32
 ).to(device)
             
 N = data["population"].iloc[0]
-optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
+optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-2)
 scheduler = StepLR(optimizer, step_size=10000, gamma=0.9)
 earlystopping = EarlyStopping(patience=100, verbose=False)
 num_epochs = 100000
@@ -454,7 +480,7 @@ index = torch.randperm(len(tensor_data["train"][0]))
 loss_history = []
 
 # Train the model
-def train_model(model, optimizer, scheduler, earlystopping, num_epochs, t, tensor_data, index, loss_history):
+def train_model(model, optimizer, scheduler, earlystopping, num_epochs, t, tensor_data, index, loss_history, lambda_reg=1e-4):
     """Train the model."""
     
     for epoch in tqdm(range(num_epochs), desc="Training"):
@@ -465,7 +491,7 @@ def train_model(model, optimizer, scheduler, earlystopping, num_epochs, t, tenso
         model_output = model(t)
         
         # Compute the loss function
-        loss = einn_loss(model_output, tensor_data, model, t, train_size=len(index))
+        loss = einn_loss(model_output, tensor_data, model, t, train_size, model, lambda_reg)
         
         # Backward pass
         loss.backward()
@@ -486,7 +512,8 @@ def train_model(model, optimizer, scheduler, earlystopping, num_epochs, t, tenso
             
     return loss_history, model
 
-loss_history, model = train_model(model, optimizer, scheduler, earlystopping, num_epochs, t, tensor_data, index, loss_history)
+# Training with regularization
+loss_history, model = train_model(model, optimizer, scheduler, earlystopping, num_epochs, t, tensor_data, index, loss_history, lambda_reg=1e-4)
 
 # plot the loss history
 def plot_loss(losses, title):
@@ -499,4 +526,98 @@ def plot_loss(losses, title):
     plt.show()
     
 plot_loss(loss_history, "EINN")
+
+# generate predictions
+model.eval()
+with torch.no_grad():
+    model_output = model(t).cpu().numpy()
+    
+# Split the model output into the different compartments
+S_pred, E_pred, Ia_pred, Is_pred, H_pred, C_pred, R_pred, D_pred = np.split(model_output, 8, axis=1)
+
+# Extract training and validation data from tensor_data
+Is_train, H_train, C_train, D_train, R_train = tensor_data["train"]
+Is_val, H_val, C_val, D_val, R_val = tensor_data["val"]
+
+# Normalize the data
+N = 1
+
+# Combine training and validation data for total data
+Is_total = np.concatenate([Is_train.cpu().numpy(), Is_val.cpu().numpy()])
+H_total = np.concatenate([H_train.cpu().numpy(), H_val.cpu().numpy()])
+C_total = np.concatenate([C_train.cpu().numpy(), C_val.cpu().numpy()])
+D_total = np.concatenate([D_train.cpu().numpy(), D_val.cpu().numpy()])
+R_total = np.concatenate([R_train.cpu().numpy(), R_val.cpu().numpy()])
+
+
+    
+    
+
+
+
+# Plot each compartment actual vs predicted values
+fig, ax = plt.subplots(5, 1, figsize=(10, 12), sharex=True)
+
+# Plot the actual values
+ax[0].plot(data["date"], Is_total, label="Actual", color="blue")
+ax[1].plot(data["date"], H_total, label="Actual", color="blue")
+ax[2].plot(data["date"], C_total, label="Actual", color="blue")
+ax[3].plot(data["date"], D_total, label="Actual", color="blue")
+ax[4].plot(data["date"], R_total, label="Actual", color="blue")
+
+
+# Plot the predicted values
+ax[0].plot(data["date"], Is_pred, label="Predicted", color="red", linestyle="--")
+ax[1].plot(data["date"], H_pred, label="Predicted", color="red",  linestyle="--")
+ax[2].plot(data["date"], C_pred, label="Predicted", color="red",  linestyle="--")
+ax[3].plot(data["date"], D_pred, label="Predicted", color="red",  linestyle="--")
+ax[4].plot(data["date"], R_pred, label="Predicted", color="red", linestyle="--")
+
+# Set the labels
+ax[0].set_ylabel("New Confirmed")
+ax[1].set_ylabel("New Admissions")
+ax[2].set_ylabel("COVID Occupied MV Beds")
+ax[3].set_ylabel("New Deceased")
+ax[4].set_ylabel("Recovered")
+ax[4].set_xlabel("Date")
+
+# set the train_size line
+ax[0].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
+ax[1].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
+ax[2].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
+ax[3].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
+ax[4].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
+
+# Set the title
+plt.suptitle("EINN Model Predictions")
+plt.xticks(rotation=45)
+plt.legend(loc="upper left")
+plt.tight_layout()
+plt.show()
+
+# extract the learned parameters
+beta = model.beta.cpu().item()
+omega = model.omega.cpu().item()
+mu = model.delta.cpu().item()
+gamma_c = model.gamma_c.cpu().item()
+delta_c = model.delta_c.cpu().item()
+
+# Print the learned parameters
+print(f"Learned parameters:")
+print(f"Beta: {beta:.4f}")
+print(f"Omega: {omega:.4f}")
+print(f"Mu: {mu:.4f}")
+print(f"Gamma_c: {gamma_c:.4f}")
+print(f"Delta_c: {delta_c:.4f}")
+
+# save as csv
+learned_params = pd.DataFrame({
+    "beta": [beta],
+    "omega": [omega],
+    "mu": [mu],
+    "gamma_c": [gamma_c],
+    "delta_c": [delta_c]
+})
+
+learned_params.to_csv(f"../../reports/results/{train_size}_{areaname}_learned_params.csv", index=False)
 
