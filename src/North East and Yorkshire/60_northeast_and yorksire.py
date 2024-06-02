@@ -19,12 +19,13 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolu
 os.makedirs("../../models", exist_ok=True)
 os.makedirs("../../reports/figures", exist_ok=True)
 os.makedirs("../../reports/results", exist_ok=True)
+os.makedirs("../../reports/parameters", exist_ok=True)
 
 # Set CUDA_LAUNCH_BLOCKING for debugging
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
 # Device setup for CUDA or CPU
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
 # Set random seed for reproducibility
 seed = 42
@@ -147,6 +148,7 @@ def calculate_all_metrics(actual, predicted, train_data, label, train_size, area
     mape, nrmse, mase, rmse, mae = calculate_errors(actual, predicted, train_data, train_size, areaname)
     return mape, nrmse, mase, rmse, mae
 
+
 # Define the SEIRD model differential equations
 def seird_model(y, t, N, beta, alpha, rho, ds, da, omega, dH, mu, gamma_c, delta_c, eta):
     S, E, Is, Ia, H, C, R, D = y
@@ -163,7 +165,7 @@ def seird_model(y, t, N, beta, alpha, rho, ds, da, omega, dH, mu, gamma_c, delta
     return [dSdt, dEdt, dIsdt, dIadt, dHdt, dCdt, dRdt, dDdt]
 
 
-areaname = "London"
+areaname = "North East and Yorkshire"
 def load_preprocess_data(filepath, areaname, recovery_period=16, rolling_window=7, end_date=None):
     """Load and preprocess the COVID-19 data."""
     df = pd.read_csv(filepath)
@@ -325,7 +327,6 @@ class StateNN(nn.Module):
         self.apply(init_weights)
 
 
-
 def einn_loss(model_output, tensor_data, parameters, t, train_size, model, lambda_reg=1e-4):
     """Compute the loss function for the EINN model with L2 regularization."""
     
@@ -440,8 +441,6 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size, model, lambd
     loss = data_loss + residual_loss + initial_loss + lambda_reg * l2_reg
     
     return loss
-
-
 
 # early stopping
 class EarlyStopping:
@@ -647,4 +646,4 @@ learned_params = pd.DataFrame({
     "delta_c": [delta_c]
 })
 
-learned_params.to_csv(f"../../reports/results/{train_size}_{areaname}_learned_params.csv", index=False)
+learned_params.to_csv(f"../../reports/parameters/{train_size}_{areaname}_learned_params.csv", index=False)

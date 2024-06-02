@@ -19,6 +19,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolu
 os.makedirs("../../models", exist_ok=True)
 os.makedirs("../../reports/figures", exist_ok=True)
 os.makedirs("../../reports/results", exist_ok=True)
+os.makedirs("../../reports/parameters", exist_ok=True)
 
 # Set CUDA_LAUNCH_BLOCKING for debugging
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
@@ -146,6 +147,7 @@ def calculate_all_metrics(actual, predicted, train_data, label, train_size, area
     print(f"\nMetrics for {label}:")
     mape, nrmse, mase, rmse, mae = calculate_errors(actual, predicted, train_data, train_size, areaname)
     return mape, nrmse, mase, rmse, mae
+
 
 # Define the SEIRD model differential equations
 def seird_model(y, t, N, beta, alpha, rho, ds, da, omega, dH, mu, gamma_c, delta_c, eta):
@@ -325,7 +327,6 @@ class StateNN(nn.Module):
         self.apply(init_weights)
 
 
-
 def einn_loss(model_output, tensor_data, parameters, t, train_size, model, lambda_reg=1e-4):
     """Compute the loss function for the EINN model with L2 regularization."""
     
@@ -440,8 +441,6 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size, model, lambd
     loss = data_loss + residual_loss + initial_loss + lambda_reg * l2_reg
     
     return loss
-
-
 
 # early stopping
 class EarlyStopping:
@@ -583,14 +582,14 @@ ax[1].plot(data["date"], H_actual, label="Actual", color="black", marker="o", ma
 ax[2].plot(data["date"], C_actual, label="Actual", color="black", marker="o", markersize=3)
 ax[3].plot(data["date"], D_actual, label="Actual", color="black", marker="o", markersize=3)
 ax[4].plot(data["date"], R_actual, label="Actual", color="black", marker="o", markersize=3)
-
+ax[0].legend()
 # Plot the predicted values
 ax[0].plot(data["date"], Is_pred, label="Predicted", color="red", linestyle="--")
 ax[1].plot(data["date"], H_pred, label="Predicted", color="red", linestyle="--")
 ax[2].plot(data["date"], C_pred, label="Predicted", color="red", linestyle="--")
 ax[3].plot(data["date"], D_pred, label="Predicted", color="red", linestyle="--")
 ax[4].plot(data["date"], R_pred, label="Predicted", color="red", linestyle="--")
-
+ax[0].legend()
 # Set the labels
 ax[0].set_ylabel("New Confirmed")
 ax[1].set_ylabel("New Admissions")
@@ -605,11 +604,12 @@ ax[1].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label
 ax[2].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
 ax[3].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
 ax[4].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
+ax[0].legend()
 
 # Set the title
 plt.suptitle("EINN Model Predictions")
 plt.xticks(rotation=45)
-plt.legend(loc="upper left")
+# plt.legend()
 plt.tight_layout()
 plt.savefig(f"../../reports/figures/{train_size}_{areaname}_predictions.pdf")
 plt.show()
@@ -617,11 +617,11 @@ plt.show()
 
 # Calculate and print the metrics for each state
 metrics = {}
-metrics["Is"] = calculate_all_metrics(Is_actual, Is_pred, Is_train.cpu().numpy(), "New Confirmed")
-metrics["H"] = calculate_all_metrics(H_actual, H_pred, H_train.cpu().numpy(), "New Admissions")
-metrics["C"] = calculate_all_metrics(C_actual, C_pred, C_train.cpu().numpy(), "COVID Occupied MV Beds")
-metrics["D"] = calculate_all_metrics(D_actual, D_pred, D_train.cpu().numpy(), "New Deceased")
-metrics["R"] = calculate_all_metrics(R_actual, R_pred, R_train.cpu().numpy(), "Recovered")
+metrics["Is"] = calculate_all_metrics(Is_actual, Is_pred, Is_train.cpu().numpy(), "New Confirmed", train_size, areaname)
+metrics["H"] = calculate_all_metrics(H_actual, H_pred, H_train.cpu().numpy(), "New Admissions", train_size, areaname)
+metrics["C"] = calculate_all_metrics(C_actual, C_pred, C_train.cpu().numpy(), "Occupied MV Beds", train_size, areaname)
+metrics["D"] = calculate_all_metrics(D_actual, D_pred, D_train.cpu().numpy(), "New Deceased", train_size, areaname)
+metrics["R"] = calculate_all_metrics(R_actual, R_pred, R_train.cpu().numpy(), "Recovered", train_size, areaname)
 
 # extract the learned parameters
 beta = model.beta.cpu().item()
@@ -647,4 +647,4 @@ learned_params = pd.DataFrame({
     "delta_c": [delta_c]
 })
 
-learned_params.to_csv(f"../../reports/results/{train_size}_{areaname}_learned_params.csv", index=False)
+learned_params.to_csv(f"../../reports/parameters/{train_size}_{areaname}_learned_params.csv", index=False)

@@ -19,6 +19,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolu
 os.makedirs("../../models", exist_ok=True)
 os.makedirs("../../reports/figures", exist_ok=True)
 os.makedirs("../../reports/results", exist_ok=True)
+os.makedirs("../../reports/parameters", exist_ok=True)
 
 # Set CUDA_LAUNCH_BLOCKING for debugging
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
@@ -254,7 +255,7 @@ def split_and_scale_data(data, train_size, features, device):
 features = ["new_confirmed", "newAdmissions", "covidOccupiedMVBeds", "new_deceased", "recovered"]
 
 # set the train size in days
-train_size = 60
+train_size = 100
 
 tensor_data, scaler = split_and_scale_data(data, train_size, features, device)
 
@@ -323,7 +324,6 @@ class StateNN(nn.Module):
                 if m.bias is not None:
                     m.bias.data.fill_(0.01)
         self.apply(init_weights)
-
 
 
 def einn_loss(model_output, tensor_data, parameters, t, train_size, model, lambda_reg=1e-4):
@@ -440,8 +440,6 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size, model, lambd
     loss = data_loss + residual_loss + initial_loss + lambda_reg * l2_reg
     
     return loss
-
-
 
 # early stopping
 class EarlyStopping:
@@ -647,4 +645,4 @@ learned_params = pd.DataFrame({
     "delta_c": [delta_c]
 })
 
-learned_params.to_csv(f"../../reports/results/{train_size}_{areaname}_learned_params.csv", index=False)
+learned_params.to_csv(f"../../reports/parameters/{train_size}_{areaname}_learned_params.csv", index=False)
