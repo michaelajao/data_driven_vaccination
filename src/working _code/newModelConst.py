@@ -100,7 +100,7 @@ plt.rcParams.update(
 
 def mean_absolute_percentage_error(y_true, y_pred):
     """Calculate the Mean Absolute Percentage Error (MAPE)."""
-    return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+    return np.mean(np.abs((y_true - y_pred) / np.clip(y_true, 1e-15, None))) * 100
 
 def normalized_root_mean_square_error(y_true, y_pred):
     """Calculate the Normalized Root Mean Square Error (NRMSE)."""
@@ -110,6 +110,8 @@ def mean_absolute_scaled_error(y_true, y_pred, y_train):
     """Calculate the Mean Absolute Scaled Error (MASE)."""
     n = len(y_train)
     d = np.abs(np.diff(y_train)).sum() / (n - 1)
+    if d == 0:
+        return np.inf
     errors = np.abs(y_true - y_pred)
     return errors.mean() / d
 
@@ -127,6 +129,12 @@ def calculate_errors(y_true, y_pred, y_train):
     print(f"Root Mean Square Error (RMSE): {rmse:.4f}")
     print(f"Mean Absolute Error (MAE): {mae:.4f}")
 
+    return mape, nrmse, mase, rmse, mae
+
+def calculate_all_metrics(actual, predicted, train_data, label):
+    """Calculate metrics for each state."""
+    print(f"\nMetrics for {label}:")
+    mape, nrmse, mase, rmse, mae = calculate_errors(actual, predicted, train_data)
     return mape, nrmse, mase, rmse, mae
 
 # Define the SEIRD model differential equations
@@ -324,9 +332,9 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size, model, lambd
     # Combine training and validation data for total data
     Is_total = torch.cat([Is_train, Is_val])
     H_total = torch.cat([H_train, H_val])
-    C_total = torch.cat([C_train, C_val])
-    D_total = torch.cat([D_train, D_val])
-    R_total = torch.cat([R_train, R_val])
+    CacC_actuall = torch.cat([C_train, C_val])
+    D_totacD_actualtorch.cat([D_train, D_val])
+    R_total =aR_actualh.cat([R_train, R_val])
     
     # Compute the total number of exposed and infectious individuals
     E_total = torch.zeros_like(Is_total)  # Initialize as a tensor of zeros
@@ -527,7 +535,8 @@ def plot_loss(losses, title):
     
 plot_loss(loss_history, "EINN")
 
-# generate predictions
+
+# Generate predictions
 model.eval()
 with torch.no_grad():
     model_output = model(t).cpu().numpy()
@@ -542,46 +551,44 @@ Is_val, H_val, C_val, D_val, R_val = tensor_data["val"]
 # Normalize the data
 N = 1
 
-# Combine training and validation data for total data
-Is_total = np.concatenate([Is_train.cpu().numpy(), Is_val.cpu().numpy()])
-H_total = np.concatenate([H_train.cpu().numpy(), H_val.cpu().numpy()])
-C_total = np.concatenate([C_train.cpu().numpy(), C_val.cpu().numpy()])
-D_total = np.concatenate([D_train.cpu().numpy(), D_val.cpu().numpy()])
-R_total = np.concatenate([R_train.cpu().numpy(), R_val.cpu().numpy()])
+# Scale the predictions back to the original scale
+scaler.fit(data[features])
+scaled_predictions = np.concatenate([Is_pred, H_pred, C_pred, D_pred, R_pred], axis=1)
+original_scale_predictions = scaler.inverse_transform(scaled_predictions)
 
+Is_pred, H_pred, C_pred, D_pred, R_pred = np.split(original_scale_predictions, 5, axis=1)
 
-    
-    
-
+# actual values
+actual_values = data[features].values
+Is_actual, H_actual, C_actual, D_actual, R_actual = np.split(actual_values, 5, axis=1)
 
 
 # Plot each compartment actual vs predicted values
 fig, ax = plt.subplots(5, 1, figsize=(10, 12), sharex=True)
 
 # Plot the actual values
-ax[0].plot(data["date"], Is_total, label="Actual", color="blue")
-ax[1].plot(data["date"], H_total, label="Actual", color="blue")
-ax[2].plot(data["date"], C_total, label="Actual", color="blue")
-ax[3].plot(data["date"], D_total, label="Actual", color="blue")
-ax[4].plot(data["date"], R_total, label="Actual", color="blue")
-
+ax[0].plot(data["date"], Is_actual, label="Actual", color="black", marker="o", markersize=3)
+ax[1].plot(data["date"], H_actual, label="Actual", color="black", marker="o", markersize=3)
+ax[2].plot(data["date"], C_actual, label="Actual", color="black", marker="o", markersize=3)
+ax[3].plot(data["date"], D_actual, label="Actual", color="black", marker="o", markersize=3)
+ax[4].plot(data["date"], R_actual, label="Actual", color="black", marker="o", markersize=3)
 
 # Plot the predicted values
 ax[0].plot(data["date"], Is_pred, label="Predicted", color="red", linestyle="--")
-ax[1].plot(data["date"], H_pred, label="Predicted", color="red",  linestyle="--")
-ax[2].plot(data["date"], C_pred, label="Predicted", color="red",  linestyle="--")
-ax[3].plot(data["date"], D_pred, label="Predicted", color="red",  linestyle="--")
+ax[1].plot(data["date"], H_pred, label="Predicted", color="red", linestyle="--")
+ax[2].plot(data["date"], C_pred, label="Predicted", color="red", linestyle="--")
+ax[3].plot(data["date"], D_pred, label="Predicted", color="red", linestyle="--")
 ax[4].plot(data["date"], R_pred, label="Predicted", color="red", linestyle="--")
 
 # Set the labels
 ax[0].set_ylabel("New Confirmed")
 ax[1].set_ylabel("New Admissions")
-ax[2].set_ylabel("COVID Occupied MV Beds")
+ax[2].set_ylabel("Occupied MV Beds")
 ax[3].set_ylabel("New Deceased")
 ax[4].set_ylabel("Recovered")
 ax[4].set_xlabel("Date")
 
-# set the train_size line
+# Set the train_size line
 ax[0].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
 ax[1].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
 ax[2].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
@@ -593,7 +600,17 @@ plt.suptitle("EINN Model Predictions")
 plt.xticks(rotation=45)
 plt.legend(loc="upper left")
 plt.tight_layout()
+plt.savefig(f"../../reports/figures/{train_size}_{areaname}_predictions.pdf")
 plt.show()
+
+
+# Calculate and print the metrics for each state
+metrics = {}
+metrics["Is"] = calculate_all_metrics(Is_actual, Is_pred, Is_train.cpu().numpy(), "New Confirmed")
+metrics["H"] = calculate_all_metrics(H_actual, H_pred, H_train.cpu().numpy(), "New Admissions")
+metrics["C"] = calculate_all_metrics(C_actual, C_pred, C_train.cpu().numpy(), "COVID Occupied MV Beds")
+metrics["D"] = calculate_all_metrics(D_actual, D_pred, D_train.cpu().numpy(), "New Deceased")
+metrics["R"] = calculate_all_metrics(R_actual, R_pred, R_train.cpu().numpy(), "Recovered")
 
 # extract the learned parameters
 beta = model.beta.cpu().item()
@@ -620,4 +637,3 @@ learned_params = pd.DataFrame({
 })
 
 learned_params.to_csv(f"../../reports/results/{train_size}_{areaname}_learned_params.csv", index=False)
-
