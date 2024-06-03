@@ -1,68 +1,40 @@
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import torch
-from torch import tensor
-import torch.nn as nn
-import torch.optim as optim
-from torch.autograd import grad
-from sklearn.preprocessing import MinMaxScaler
+import matplotlib.dates as mdates
 from tqdm.notebook import tqdm
+from scipy.integrate import odeint
 from collections import deque
+import torch
+import torch.nn as nn
+from torch.autograd import grad
+import torch.optim as optim
+from torch.optim.lr_scheduler import StepLR
+from sklearn.preprocessing import MinMaxScaler
+from torch import tensor
+from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
 
-# Set matplotlib style and parameters
-plt.style.use("seaborn-v0_8-poster")
-plt.rcParams.update({
-    "font.size": 20,
-    "figure.figsize": [10, 5],
-    "figure.facecolor": "white",
-    "figure.autolayout": True,
-    "figure.dpi": 600,
-    "savefig.dpi": 600,
-    "savefig.format": "pdf",
-    "savefig.bbox": "tight",
-    "axes.labelweight": "bold",
-    "axes.titleweight": "bold",
-    "axes.labelsize": 14,
-    "axes.titlesize": 18,
-    "axes.facecolor": "white",
-    "axes.grid": True,
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "axes.formatter.limits": (0, 5),
-    "axes.formatter.use_mathtext": True,
-    "axes.formatter.useoffset": False,
-    "axes.xmargin": 0,
-    "axes.ymargin": 0,
-    "legend.fontsize": 14,
-    "legend.frameon": False,
-    "legend.loc": "best",
-    "lines.linewidth": 2,
-    "lines.markersize": 8,
-    "xtick.labelsize": 14,
-    "xtick.direction": "in",
-    "xtick.top": False,
-    "ytick.labelsize": 14,
-    "ytick.direction": "in",
-    "ytick.right": False,
-    "grid.color": "grey",
-    "grid.linestyle": "--",
-    "grid.linewidth": 0.5,
-    "errorbar.capsize": 4,
-    "figure.subplot.wspace": 0.4,
-    "figure.subplot.hspace": 0.4,
-    "image.cmap": "viridis",
-})
+# Ensure the folders exist
+os.makedirs("../../models", exist_ok=True)
+os.makedirs("../../reports/figures", exist_ok=True)
+os.makedirs("../../reports/results", exist_ok=True)
+os.makedirs("../../reports/England", exist_ok=True)
+
+# Set CUDA_LAUNCH_BLOCKING for debugging
+os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
 # Device setup for CUDA or CPU
 device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
 
 # Set random seed for reproducibility
-torch.manual_seed(42)
+seed = 42
+torch.manual_seed(seed)
 if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+np.random.seed(seed)
 
 def check_pytorch():
     """Check PyTorch and CUDA setup."""
@@ -80,73 +52,502 @@ def check_pytorch():
 
 check_pytorch()
 
-def load_and_preprocess_data(filepath, areaname, recovery_period=16, rolling_window=7, start_date="2020-04-01", end_date="2020-12-31"):
-    """Load and preprocess the data from a CSV file."""
+# Set matplotlib style and parameters
+plt.style.use("seaborn-v0_8-paper")
+plt.rcParams.update(
+    {
+        "font.size": 14,
+        "figure.figsize": [10, 6],
+        "text.usetex": False,
+        "figure.facecolor": "white",
+        "figure.autolayout": True,
+        "figure.dpi": 600,
+        "savefig.dpi": 600,
+        "savefig.format": "pdf",
+        "savefig.bbox": "tight",
+        "axes.labelweight": "bold",
+        "axes.titleweight": "bold",
+        "axes.labelsize": 12,
+        "axes.titlesize": 18,
+        "axes.facecolor": "white",
+        "axes.grid": True,
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.formatter.limits": (0, 5),
+        "axes.formatter.use_mathtext": True,
+        "axes.formatter.useoffset": False,
+        "axes.xmargin": 0,
+        "axes.ymargin": 0,
+        "legend.fontsize": 12,
+        "legend.frameon": False,
+        "legend.loc": "best",
+        "lines.linewidth": 2,
+        "lines.markersize": 8,
+        "xtick.labelsize": 12,
+        "xtick.direction": "in",
+        "xtick.top": False,
+        "ytick.labelsize": 12,
+        "ytick.direction": "in",
+        "ytick.right": False,
+        "grid.color": "grey",
+        "grid.linestyle": "--",
+        "grid.linewidth": 0.5,
+        "errorbar.capsize": 4,
+        "figure.subplot.wspace": 0.4,
+        "figure.subplot.hspace": 0.4,
+        "image.cmap": "viridis",
+    }
+)
+
+def safe_mean_absolute_percentage_error(y_true, y_pred, epsilon=1e-10):
+    """Calculate the Mean Absolute Percentage Error (MAPE) safely."""
+    return np.mean(np.abs((y_true - y_pred) / np.maximum(np.abs(y_true), epsilon))) * 100
+
+def normalized_root_mean_square_error(y_true, y_pred):
+    """Calculate the Normalized Root Mean Square Error (NRMSE)."""
+    return np.sqrt(mean_squared_error(y_true, y_pred)) / (np.max(y_true) - np.min(y_true))
+
+def safe_mean_absolute_scaled_error(y_true, y_pred, y_train, epsilon=1e-10):
+    """Calculate the Mean Absolute Scaled Error (MASE) safely."""
+    n = len(y_train)
+    d = np.abs(np.diff(y_train)).sum() / (n - 1)
+    d = max(d, epsilon)
+    errors = np.abs(y_true - y_pred)
+    return errors.mean() / d
+
+def calculate_errors(y_true, y_pred, y_train, train_size, areaname):
+    """Calculate and print various error metrics."""
+    mape = safe_mean_absolute_percentage_error(y_true, y_pred)
+    nrmse = normalized_root_mean_square_error(y_true, y_pred)
+    mase = safe_mean_absolute_scaled_error(y_true, y_pred, y_train)
+    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+    mae = mean_absolute_error(y_true, y_pred)
+
+    print(f"Mean Absolute Percentage Error (MAPE): {mape:.2f}%")
+    print(f"Normalized Root Mean Square Error (NRMSE): {nrmse:.4f}")
+    print(f"Mean Absolute Scaled Error (MASE): {mase:.4f}")
+    print(f"Root Mean Square Error (RMSE): {rmse:.4f}")
+    print(f"Mean Absolute Error (MAE): {mae:.4f}")
+    
+    # save as csv
+    metrics = pd.DataFrame({
+        "MAPE": [mape],
+        "NRMSE": [nrmse],
+        "MASE": [mase],
+        "RMSE": [rmse],
+        "MAE": [mae]
+    })
+    
+    metrics.to_csv(f"../../reports/results/{train_size}_{areaname}_metrics.csv", index=False)
+    
+    return mape, nrmse, mase, rmse, mae
+
+def calculate_all_metrics(actual, predicted, train_data, label, train_size, areaname):
+    """Calculate metrics for each state."""
+    print(f"\nMetrics for {label}:")
+    mape, nrmse, mase, rmse, mae = calculate_errors(actual, predicted, train_data, train_size, areaname)
+    return mape, nrmse, mase, rmse, mae
+
+# Define the SEIRD model differential equations
+def seird_model(y, t, N, beta, alpha, rho, ds, da, omega, dH, mu, gamma_c, delta_c, eta):
+    S, E, Is, Ia, H, C, R, D = y
+    
+    dSdt = -beta * (Is + Ia) / N * S + eta * R
+    dEdt = beta * (Is + Ia) / N * S - alpha * E
+    dIsdt = alpha * rho * E - ds * Is
+    dIadt = alpha * (1 - rho) * E - da * Ia
+    dHdt = ds * omega * Is - dH * H - mu * H
+    dCdt = dH * (1 - omega) * H - gamma_c * C - delta_c * C
+    dRdt = ds * (1 - omega) * Is + da * Ia + dH * (1 - mu) * H + gamma_c * C - eta * R
+    dDdt = mu * H + delta_c * C
+    
+    return [dSdt, dEdt, dIsdt, dIadt, dHdt, dCdt, dRdt, dDdt]
+
+
+areaname = "England"
+def load_preprocess_data(filepath, areaname, recovery_period=16, rolling_window=7, end_date=None):
+    """Load and preprocess the COVID-19 data."""
     df = pd.read_csv(filepath)
-    df = df[df["nhs_region"] == areaname].reset_index(drop=True)
-    df = df[::-1].reset_index(drop=True)  # Reverse dataset if needed
-
+    
+    # Select the columns of interest
+    # df = df[df["nhs_region"] == areaname].reset_index(drop=True)
+    
+    # # reset the index
+    # df = df[::-1].reset_index(drop=True)  # Reverse dataset if needed
+    
+    # Convert the date column to datetime
     df["date"] = pd.to_datetime(df["date"])
-    df = df[(df["date"] >= pd.to_datetime(start_date)) & (df["date"] <= pd.to_datetime(end_date))]
-
+    
+    
+    # calculate the recovered column from data
     df["recovered"] = df["cumulative_confirmed"].shift(recovery_period) - df["cumulative_deceased"].shift(recovery_period)
     df["recovered"] = df["recovered"].fillna(0).clip(lower=0)
-    df["active_cases"] = df["cumulative_confirmed"] - df["recovered"] - df["cumulative_deceased"]
-    df["S(t)"] = df["population"] - df["cumulative_confirmed"] - df["cumulative_deceased"] - df["recovered"]
-
-    cols_to_smooth = ["S(t)", "cumulative_confirmed", "cumulative_deceased", "hospitalCases", "covidOccupiedMVBeds", "recovered", "active_cases", "new_deceased", "new_confirmed"]
+    
+    # select data up to the end_date
+    if end_date:
+        df = df[df["date"] <= end_date]
+        
+    # calculate the susceptible column from data
+    df["susceptible"] = df["population"] - df["cumulative_confirmed"] - df["cumulative_deceased"] - df["recovered"]
+    
+    cols_to_smooth = ["susceptible", "cumulative_confirmed", "cumulative_deceased", "hospitalCases", "covidOccupiedMVBeds", "new_deceased", "new_confirmed", "newAdmissions", "cumAdmissions", "recovered"]
     for col in cols_to_smooth:
         df[col] = df[col].rolling(window=rolling_window, min_periods=1).mean().fillna(0)
-
+        
+    # normalize the data with the population
+    # df["cumulative_confirmed"] = df["cumulative_confirmed"] / df["population"]
+    # df["cumulative_deceased"] = df["cumulative_deceased"] / df["population"]
+    # df["hospitalCases"] = df["hospitalCases"] / df["population"]
+    # df["covidOccupiedMVBeds"] = df["covidOccupiedMVBeds"] / df["population"]
+    # df["new_deceased"] = df["new_deceased"] / df["population"]
+    # df["new_confirmed"] = df["new_confirmed"] / df["population"]
+    # df["recovered"] = df["recovered"] / df["population"]
+    # df["population"] = df["population"] / df["population"]
+    # df["susceptible"] = df["susceptible"] / df["population"]
+    # df["newAdmissions"] = df["newAdmissions"] / df["population"]
+    # df["cumAdmissions"] = df["cumAdmissions"] / df["population"]
+    
     return df
 
-# Load and preprocess the data
-data = load_and_preprocess_data("../../data/hos_data/merged_data.csv", areaname="South West", recovery_period=21, rolling_window=7, start_date="2020-04-01", end_date="2020-08-31")
+data = load_preprocess_data("../../data/processed/england_data.csv", areaname, recovery_period=21, rolling_window=7, end_date="2021-12-31")
 
-data.head(10)
-
-def SEIHCRD_model(t, y, beta, gamma, sigma, delta, alpha, rho, theta, eta, mu, nu):
-    """SEIHCRD model."""
-    S, E, I, H, C, R, D = y.T
-    dSdt = -beta * S * I / (S + E + I + H + C + R + D)
-    dEdt = beta * S * I / (S + E + I + H + C + R + D) - sigma * E
-    dIdt = sigma * E - gamma * I
-    dHdt = gamma * theta * I - delta * H - alpha * (1 - theta) * H
-    dCdt = delta * H - rho * C
-    dRdt = gamma * (1 - theta) * I + alpha * (1 - theta) * H + rho * C - eta * R
-    dDdt = gamma * theta * I + alpha * theta * H + nu * R
-    return tensor([dSdt, dEdt, dIdt, dHdt, dCdt, dRdt, dDdt])
 
 def prepare_tensors(data, device):
-    t = tensor(range(1, len(data) + 1), dtype=torch.float32).view(-1, 1).to(device).requires_grad_(True)
-    S = tensor(data["S(t)"].values, dtype=torch.float32).view(-1, 1).to(device)
-    I = tensor(data["active_cases"].values, dtype=torch.float32).view(-1, 1).to(device)
-    R = tensor(data["recovered"].values, dtype=torch.float32).view(-1, 1).to(device)
-    D = tensor(data["new_deceased"].values, dtype=torch.float32).view(-1, 1).to(device)
-    H = tensor(data["hospitalCases"].values, dtype=torch.float32).view(-1, 1).to(device)
+    """Prepare tensors for training."""
+    I = tensor(data["new_confirmed"].values, dtype=torch.float32).view(-1, 1).to(device)
+    H = tensor(data["newAdmissions"].values, dtype=torch.float32).view(-1, 1).to(device)
     C = tensor(data["covidOccupiedMVBeds"].values, dtype=torch.float32).view(-1, 1).to(device)
-    return t, S, I, R, D, H, C
+    D = tensor(data["new_deceased"].values, dtype=torch.float32).view(-1, 1).to(device)
+    R = tensor(data["recovered"].values, dtype=torch.float32).view(-1, 1).to(device)
+    return I, H, C, D, R
 
-def split_and_scale_data(data, train_size, features, device):
+
+def scale_data(data, features, device):
+    """Split and scale data into training and validation sets."""
     scaler = MinMaxScaler()
     scaler.fit(data[features])
+    
+    # Scale the data
+    data_scaled = scaler.transform(data[features])
+    
+    # Convert the data to PyTorch tensors
+    data_scaled = torch.tensor(data_scaled, dtype=torch.float32).to(device)
+    
+    return data_scaled, scaler
 
-    train_data = data.iloc[:train_size]
-    val_data = data.iloc[train_size:]
 
-    scaled_train_data = pd.DataFrame(scaler.transform(train_data[features]), columns=features)
-    scaled_val_data = pd.DataFrame(scaler.transform(val_data[features]), columns=features)
+features = ["new_confirmed", "newAdmissions", "covidOccupiedMVBeds", "new_deceased", "recovered"]
 
-    # Prepare tensors for training and validation
-    t_train, S_train, I_train, R_train, D_train, H_train, C_train = prepare_tensors(scaled_train_data, device)
-    t_val, S_val, I_val, R_val, D_val, H_val, C_val = prepare_tensors(scaled_val_data, device)
+# Split and scale the data
+data_scaled, scaler = scale_data(data, features, device)
 
-    tensor_data = {
-        "train": (t_train, S_train, I_train, R_train, D_train, H_train, C_train),
-        "val": (t_val, S_val, I_val, R_val, D_val, H_val, C_val),
-    }
+class EpiNet(nn.Module):
+    def __init__(self, num_layers=2, hidden_neurons=10, output_size=6):
+        super(EpiNet, self).__init__()
+        self.retain_seed = 100
+        torch.manual_seed(self.retain_seed)
 
-    return tensor_data, scaler
+        layers = [nn.Linear(1, hidden_neurons), nn.Tanh()]
 
-features = ["S(t)", "active_cases", "hospitalCases", "covidOccupiedMVBeds", "recovered", "new_deceased"]
-train_size = 60  # days
+        for _ in range(num_layers - 1):
+            layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
+
+        layers.append(nn.Linear(hidden_neurons, output_size))
+        self.net = nn.Sequential(*layers)
+        self.init_xavier()
+        
+        
+    def forward(self, t):
+            output = self.net(t)
+            return output
+
+    def init_xavier(self):
+        def init_weights(layer):
+            if isinstance(layer, nn.Linear):
+                g = nn.init.calculate_gain("tanh")
+                nn.init.xavier_normal_(layer.weight, gain=g)
+                if layer.bias is not None:
+                    layer.bias.data.fill_(0)
+
+        self.net.apply(init_weights)
+
+
+class BetaNet(nn.Module):
+    def __init__(self, num_layers=2, hidden_neurons=10):
+        super(BetaNet, self).__init__()
+        self.retain_seed = 100
+        torch.manual_seed(self.retain_seed)
+
+        layers = [nn.Linear(1, hidden_neurons), nn.ReLU()]
+
+        for _ in range(num_layers - 1):
+            layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.ReLU()])
+
+        layers.append(nn.Linear(hidden_neurons, 6))
+        self.net = nn.Sequential(*layers)
+        # self.init_xavier()
+        
+    def forward(self, t):
+        return self.net(t)
+
+    def get_params(self, t):
+        raw_params = self.net(t)
+        # Apply non-negative constraints to the parameters using sigmoid
+        beta = torch.sigmoid(raw_params[:, 0]) * 0.9 + 0.1
+        omega = torch.sigmoid(raw_params[:, 1]) * 0.09 + 0.01
+        mu = torch.sigmoid(raw_params[:, 2]) * 0.09 + 0.01
+        gamma_c = torch.sigmoid(raw_params[:, 3]) * 0.09 + 0.01
+        delta_c = torch.sigmoid(raw_params[:, 4]) * 0.09 + 0.01
+        eta = torch.sigmoid(raw_params[:, 5]) * 0.09 + 0.01
+        return beta, omega, mu, gamma_c, delta_c, eta
+    
+
+def einn_loss(model_output, tensor_data, parameters, t, model, lambda_reg=1e-4):
+    """Compute the loss function for the EINN model with L2 regularization."""
+    
+    # Split the model output into the different compartments
+    S_pred, E_pred, Ia_pred, Is_pred, H_pred, C_pred, R_pred, D_pred = torch.split(model_output, 1, dim=1)
+    
+    # Normalize the data
+    N = 1
+    
+    Is_data, H_data, C_data, D_data, R_data = tensor_data[:, 0].view(-1, 1), tensor_data[:, 1].view(-1, 1), tensor_data[:, 2].view(-1, 1), tensor_data[:, 3].view(-1, 1), tensor_data[:, 4].view(-1, 1)
+    
+    
+    E_data = torch.zeros_like(Is_data)  # Initialize as a tensor of zeros
+    Ia_data = torch.zeros_like(Is_data)  # Initialize as a tensor of zeros
+    S_data = N - E_data - Ia_data - Is_data - H_data - C_data - R_data - D_data
+
+    
+    # Constants based on the table provided
+    rho = 0.75  # Proportion of symptomatic infections
+    alpha = 1 / 5.2  # Incubation period (3.4 days)
+    d_s = 1 / 2.9  # Infectious period for symptomatic (2.9 days)
+    d_a = 1 / 6  # Infectious period for asymptomatic (6 days)
+    d_h = 1 / 7  # Hospitalization days (7 days)
+    
+    # learned parameters
+    beta, omega, mu, gamma_c, delta_c, eta = parameters
+    
+    # Compute the loss function
+    S_t = grad(S_pred, t, grad_outputs=torch.ones_like(S_pred), create_graph=True)[0]
+    E_t = grad(E_pred, t, grad_outputs=torch.ones_like(E_pred), create_graph=True)[0]
+    Ia_t = grad(Ia_pred, t, grad_outputs=torch.ones_like(Ia_pred), create_graph=True)[0]
+    Is_t = grad(Is_pred, t, grad_outputs=torch.ones_like(Is_pred), create_graph=True)[0]
+    H_t = grad(H_pred, t, grad_outputs=torch.ones_like(H_pred), create_graph=True)[0]
+    C_t = grad(C_pred, t, grad_outputs=torch.ones_like(C_pred), create_graph=True)[0]
+    R_t = grad(R_pred, t, grad_outputs=torch.ones_like(R_pred), create_graph=True)[0]
+    D_t = grad(D_pred, t, grad_outputs=torch.ones_like(D_pred), create_graph=True)[0]
+    
+    # Compute the differential equations
+    dSdt = -beta * (Is_data + Ia_data) / N * S_data + eta * R_data
+    dEdt = beta * (Is_data + Ia_data) / N * S_data - alpha * E_data
+    dIsdt = alpha * rho * E_data - d_s * Is_data
+    dIadt = alpha * (1 - rho) * E_data - d_a * Ia_data
+    dHdt = d_s * omega * Is_data - d_h * H_data - mu * H_data
+    dCdt = d_h * (1 - omega) * H_data - gamma_c * C_data - delta_c * C_data
+    dRdt = d_s * (1 - omega) * Is_data + d_a * Ia_data + d_h * (1 - mu) * H_data + gamma_c * C_data - eta * R_data
+    dDdt = mu * H_data + delta_c * C_data
+        
+    # Compute the loss function
+    # data loss
+    data_loss = (
+        torch.mean((S_pred - S_data) ** 2)
+        + torch.mean((E_pred - E_data) ** 2)
+        + torch.mean((Ia_pred - Ia_data) ** 2)
+        + torch.mean((Is_pred - Is_data) ** 2)
+        + torch.mean((H_pred - H_data) ** 2)
+        + torch.mean((C_pred - C_data) ** 2)
+        + torch.mean((R_pred - R_data) ** 2)
+        + torch.mean((D_pred - D_data) ** 2)
+        
+    )
+    
+    # residual loss
+    residual_loss = (
+        torch.mean((S_t - dSdt) ** 2)
+        + torch.mean((E_t - dEdt) ** 2)
+        + torch.mean((Ia_t - dIadt) ** 2)
+        + torch.mean((Is_t - dIsdt) ** 2)
+        + torch.mean((H_t - dHdt) ** 2)
+        + torch.mean((C_t - dCdt) ** 2)
+        + torch.mean((R_t - dRdt) ** 2)
+        + torch.mean((D_t - dDdt) ** 2)
+    )
+    
+    # Initial condition loss
+    S0, E0, Ia0, Is0, H0, C0, R0, D0 = S_data[0], E_data[0], Ia_data[0], Is_data[0], H_data[0], C_data[0], R_data[0], D_data[0]
+    initial_loss = (
+        (S_pred[0] - S0) ** 2
+        + (E_pred[0] - E0) ** 2
+        + (Ia_pred[0] - Ia0) ** 2
+        + (Is_pred[0] - Is0) ** 2
+        + (H_pred[0] - H0) ** 2
+        + (C_pred[0] - C0) ** 2
+        + (R_pred[0] - R0) ** 2
+        + (D_pred[0] - D0) ** 2
+    )
+    
+    # L2 regularization term
+    l2_reg = torch.tensor(0.).to(device)
+    for param in model.parameters():
+        l2_reg += torch.norm(param)
+
+    # total loss
+    loss = data_loss + residual_loss + initial_loss + lambda_reg * l2_reg
+    
+    return loss
+
+
+class EarlyStopping:
+    def __init__(self, patience=7, verbose=False):
+        self.patience = patience
+        self.verbose = verbose
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+        self.val_loss_min = np.Inf
+
+    def __call__(self, val_loss):
+        score = -val_loss
+
+        if self.best_score is None:
+            self.best_score = score
+        elif score < self.best_score:
+            self.counter += 1
+            if self.verbose:
+                print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = score
+            self.counter = 0
+ 
+# Initialize the model and optimizer           
+model = EpiNet(num_layers=5, hidden_neurons=32, output_size=8).to(device)
+beta_net = BetaNet(num_layers=5, hidden_neurons=32).to(device)
+
+# population
+N = data["population"].iloc[0]
+
+# Define the optimizer and scheduler
+model_optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-2)
+params_optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-2)
+
+
+model_scheduler = StepLR(model_optimizer, step_size=10000, gamma=0.9)
+params_scheduler = StepLR(params_optimizer, step_size=10000, gamma=0.9)
+
+
+earlystopping = EarlyStopping(patience=100, verbose=False)
+num_epochs = 100000
+
+t = torch.tensor(np.arange(1, len(data) + 1), dtype=torch.float32).view(-1, 1).to(device).requires_grad_(True)
+
+# Initialize the loss history
+loss_history = []
+
+
+# Train the model
+def train_model(model, beta_net, model_optimizer, params_optimizer, t, data_scaled, N, earlystopping, num_epochs, loss_history, model_scheduler, params_scheduler, lambda_reg=1e-4):
+    for epoch in tqdm(range(num_epochs)):
+        model.train()
+        beta_net.train()
+        
+        # Zero the gradients
+        model_optimizer.zero_grad()
+        params_optimizer.zero_grad()
+        
+        # Forward pass
+        model_output = model(t)
+        parameters = beta_net.get_params(t)
+        
+        # Calculate the loss
+        loss = einn_loss(model_output, data_scaled, parameters, t, model, lambda_reg)
+        # Backward pass
+        loss.backward()
+        
+        # Update the weights
+        model_optimizer.step()
+        params_optimizer.step()
+        
+        # Update the learning rate
+        model_scheduler.step()
+        params_scheduler.step()
+        
+        # Save the loss
+        loss_history.append(loss.item())
+        
+        # Early stopping
+        earlystopping(loss.item())
+        if earlystopping.early_stop:
+            print("Early stopping")
+            break
+        
+        if (epoch + 1) % 100 == 0 or epoch == 0:
+            print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {loss.item():.6f}")
+            
+    return model, beta_net, loss_history
+
+# Function to plot the loss history
+def plot_loss(losses, title="Training Loss", filename=None):
+    plt.figure(figsize=(10, 6))
+    plt.plot(np.arange(1, len(losses) + 1), losses, label='Loss', color='black')
+    plt.yscale('log')
+    plt.title(f"{title}")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss (log scale)")
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    if filename:
+        plt.savefig(filename, format='pdf', dpi=600)
+    plt.show()
+    
+# Train the model
+model, beta_net, loss_history = train_model(model, beta_net, model_optimizer, params_optimizer, t, data_scaled, N, earlystopping, num_epochs, loss_history, model_scheduler, params_scheduler)
+
+# Plot the loss history
+plot_loss(loss_history, title="Training Loss", filename="../../reports/figures/England/loss_history.pdf")
+
+# Function to plot the actual vs predicted values
+def plot_actual_vs_predicted(data, actual_values, predicted_values, features, train_size, areaname, filename=None):
+    fig, ax = plt.subplots(len(features), 1, figsize=(10, 12), sharex=True)
+
+    for i, feature in enumerate(features):
+        ax[i].plot(data["date"], actual_values[i], label="Actual", color="black", marker="o", markersize=3, linestyle='None')
+        ax[i].plot(data["date"], predicted_values[i], label="Predicted", color="red", linestyle="--", linewidth=2)
+        # ax[i].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
+        ax[i].set_ylabel(feature.replace("_", " ").title())
+        ax[i].legend()
+        ax[i].grid(True, linestyle='--', alpha=0.7)
+
+    ax[-1].set_xlabel("Date")
+    plt.suptitle(f"EINN Model Predictions for {areaname}")
+    plt.xticks(rotation=45)
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
+    if filename:
+        plt.savefig(filename, format='pdf', dpi=600)
+    plt.show()
+
+
+# Generate predictions
+model.eval()
+with torch.no_grad():
+    model_output = model(t).cpu().numpy()
+    
+# Inverse transform the data
+model_output = scaler.inverse_transform(model_output)
+
+# Prepare the actual and predicted values
+actual_values = [data[feature].values for feature in features]
+predicted_values = [model_output[:, i] for i in range(model_output.shape[1])]
+
+# Plot the actual vs predicted values
+plot_actual_vs_predicted(data, actual_values, predicted_values, features, len(data) - len(data_scaled), areaname, filename=f"../../reports/figures/England/{areaname}_actual_vs_predicted.pdf")
+
+# Calculate the metrics
+mape, nrmse, mase, rmse, mae = calculate_all_metrics(np.array(actual_values).T, np.array(predicted_values).T, data[features].values, len(data) - len(data_scaled), areaname)
+
+
+

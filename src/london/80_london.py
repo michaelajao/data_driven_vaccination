@@ -572,7 +572,6 @@ Is_pred, H_pred, C_pred, D_pred, R_pred = np.split(original_scale_predictions, 5
 actual_values = data[features].values
 Is_actual, H_actual, C_actual, D_actual, R_actual = np.split(actual_values, 5, axis=1)
 
-
 # Plot each compartment actual vs predicted values
 fig, ax = plt.subplots(5, 1, figsize=(10, 12), sharex=True)
 
@@ -582,14 +581,14 @@ ax[1].plot(data["date"], H_actual, label="Actual", color="black", marker="o", ma
 ax[2].plot(data["date"], C_actual, label="Actual", color="black", marker="o", markersize=3)
 ax[3].plot(data["date"], D_actual, label="Actual", color="black", marker="o", markersize=3)
 ax[4].plot(data["date"], R_actual, label="Actual", color="black", marker="o", markersize=3)
-
+ax[0].legend()
 # Plot the predicted values
 ax[0].plot(data["date"], Is_pred, label="Predicted", color="red", linestyle="--")
 ax[1].plot(data["date"], H_pred, label="Predicted", color="red", linestyle="--")
 ax[2].plot(data["date"], C_pred, label="Predicted", color="red", linestyle="--")
 ax[3].plot(data["date"], D_pred, label="Predicted", color="red", linestyle="--")
 ax[4].plot(data["date"], R_pred, label="Predicted", color="red", linestyle="--")
-
+ax[0].legend()
 # Set the labels
 ax[0].set_ylabel("New Confirmed")
 ax[1].set_ylabel("New Admissions")
@@ -604,11 +603,12 @@ ax[1].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label
 ax[2].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
 ax[3].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
 ax[4].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
+ax[0].legend()
 
 # Set the title
 plt.suptitle("EINN Model Predictions")
 plt.xticks(rotation=45)
-plt.legend(loc="upper left")
+# plt.legend()
 plt.tight_layout()
 plt.savefig(f"../../reports/figures/{train_size}_{areaname}_predictions.pdf")
 plt.show()
@@ -616,11 +616,11 @@ plt.show()
 
 # Calculate and print the metrics for each state
 metrics = {}
-metrics["Is"] = calculate_all_metrics(Is_actual, Is_pred, Is_train.cpu().numpy(), "New Confirmed")
-metrics["H"] = calculate_all_metrics(H_actual, H_pred, H_train.cpu().numpy(), "New Admissions")
-metrics["C"] = calculate_all_metrics(C_actual, C_pred, C_train.cpu().numpy(), "COVID Occupied MV Beds")
-metrics["D"] = calculate_all_metrics(D_actual, D_pred, D_train.cpu().numpy(), "New Deceased")
-metrics["R"] = calculate_all_metrics(R_actual, R_pred, R_train.cpu().numpy(), "Recovered")
+metrics["Is"] = calculate_all_metrics(Is_actual, Is_pred, Is_train.cpu().numpy(), "New Confirmed", train_size, areaname)
+metrics["H"] = calculate_all_metrics(H_actual, H_pred, H_train.cpu().numpy(), "New Admissions", train_size, areaname)
+metrics["C"] = calculate_all_metrics(C_actual, C_pred, C_train.cpu().numpy(), "Occupied MV Beds", train_size, areaname)
+metrics["D"] = calculate_all_metrics(D_actual, D_pred, D_train.cpu().numpy(), "New Deceased", train_size, areaname)
+metrics["R"] = calculate_all_metrics(R_actual, R_pred, R_train.cpu().numpy(), "Recovered", train_size, areaname)
 
 # extract the learned parameters
 beta = model.beta.cpu().item()
