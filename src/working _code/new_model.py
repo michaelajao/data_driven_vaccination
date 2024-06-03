@@ -429,12 +429,13 @@ beta_net = BetaNet(num_layers=5, hidden_neurons=32).to(device)
 N = data["population"].iloc[0]
 
 # Define the optimizer and scheduler
-optimizer = optim.Adam(list(model.parameters()) + list(beta_net.parameters()), lr=1e-4)
-# params_optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-2)
+# optimizer = optim.Adam(list(model.parameters()) + list(beta_net.parameters()), lr=1e-4)
+model_optimizer = optim.Adam(model.parameters(), lr=1e-4)
+params_optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
-scheduler = StepLR(optimizer, step_size=5000, gamma=0.9)
-# model_scheduler = StepLR(model_optimizer, step_size=5000, gamma=0.9)
-# params_scheduler = StepLR(params_optimizer, step_size=5000, gamma=0.9)
+# scheduler = StepLR(optimizer, step_size=5000, gamma=0.9)
+model_scheduler = StepLR(model_optimizer, step_size=5000, gamma=0.9)
+params_scheduler = StepLR(params_optimizer, step_size=5000, gamma=0.9)
 
 
 earlystopping = EarlyStopping(patience=100, verbose=False)
@@ -446,13 +447,60 @@ t = torch.tensor(np.arange(1, len(data) + 1), dtype=torch.float32).view(-1, 1).t
 loss_history = []
 
 # train the model
-def train_model(model, beta_net, optimizer, t, data_scaled, N, earlystopping, num_epochs, loss_history, scheduler, lambda_reg=1e-4):
+# def train_model(model, beta_net, optimizer, t, data_scaled, N, earlystopping, num_epochs, loss_history, scheduler, lambda_reg=1e-4):
+#     for epoch in tqdm(range(num_epochs)):
+#         model.train()
+#         beta_net.train()
+        
+#         # Zero the gradients
+#         optimizer.zero_grad()
+        
+#         # Forward pass
+#         model_output = model(t)
+#         parameters = beta_net.get_params(t)
+        
+#         # Calculate the loss
+#         loss = einn_loss(model_output, data_scaled, parameters, t, model, lambda_reg)
+#         # Backward pass
+#         loss.backward()
+        
+#         # Update the weights
+#         optimizer.step()
+        
+#         # Update the learning rate
+#         scheduler.step()
+        
+#         # Save the loss
+#         loss_history.append(loss.item())
+        
+#         # Early stopping
+#         earlystopping(loss.item())
+#         if earlystopping.early_stop:
+#             print("Early stopping")
+#             break
+        
+#         if (epoch + 1) % 500 == 0 or epoch == 0:
+#             print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {loss.item():.6f}")
+#             beta, omega, mu, gamma_c, delta_c, eta = parameters
+#             print(f"beta (first 5 values): {beta[:5].cpu().detach().numpy().flatten()}")
+#             print(f"omega (first 5 values): {omega[:5].cpu().detach().numpy().flatten()}")
+#             print(f"mu (first 5 values): {mu[:5].cpu().detach().numpy().flatten()}")
+#             print(f"gamma_c (first 5 values): {gamma_c[:5].cpu().detach().numpy().flatten()}")
+#             print(f"delta_c (first 5 values): {delta_c[:5].cpu().detach().numpy().flatten()}")
+#             print(f"eta (first 5 values): {eta[:5].cpu().detach().numpy().flatten()}")
+            
+#     return model, beta_net, loss_history
+
+
+# Train the model
+def train_model(model, beta_net, model_optimizer, params_optimizer, t, data_scaled, N, earlystopping, num_epochs, loss_history, model_scheduler, params_scheduler, lambda_reg=1e-4):
     for epoch in tqdm(range(num_epochs)):
         model.train()
         beta_net.train()
         
         # Zero the gradients
-        optimizer.zero_grad()
+        model_optimizer.zero_grad()
+        params_optimizer.zero_grad()
         
         # Forward pass
         model_output = model(t)
@@ -464,10 +512,12 @@ def train_model(model, beta_net, optimizer, t, data_scaled, N, earlystopping, nu
         loss.backward()
         
         # Update the weights
-        optimizer.step()
+        model_optimizer.step()
+        params_optimizer.step()
         
         # Update the learning rate
-        scheduler.step()
+        model_scheduler.step()
+        params_scheduler.step()
         
         # Save the loss
         loss_history.append(loss.item())
@@ -490,48 +540,6 @@ def train_model(model, beta_net, optimizer, t, data_scaled, N, earlystopping, nu
             
     return model, beta_net, loss_history
 
-
-# Train the model
-# def train_model(model, beta_net, model_optimizer, params_optimizer, t, data_scaled, N, earlystopping, num_epochs, loss_history, model_scheduler, params_scheduler, lambda_reg=1e-4):
-#     for epoch in tqdm(range(num_epochs)):
-#         model.train()
-#         beta_net.train()
-        
-#         # Zero the gradients
-#         model_optimizer.zero_grad()
-#         params_optimizer.zero_grad()
-        
-#         # Forward pass
-#         model_output = model(t)
-#         parameters = beta_net.get_params(t)
-        
-#         # Calculate the loss
-#         loss = einn_loss(model_output, data_scaled, parameters, t, model, lambda_reg)
-#         # Backward pass
-#         loss.backward()
-        
-#         # Update the weights
-#         model_optimizer.step()
-#         params_optimizer.step()
-        
-#         # Update the learning rate
-#         model_scheduler.step()
-#         params_scheduler.step()
-        
-#         # Save the loss
-#         loss_history.append(loss.item())
-        
-#         # Early stopping
-#         earlystopping(loss.item())
-#         if earlystopping.early_stop:
-#             print("Early stopping")
-#             break
-        
-#         if (epoch + 1) % 100 == 0 or epoch == 0:
-#             print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {loss.item():.6f}")
-            
-#     return model, beta_net, loss_history
-
 # Function to plot the loss history
 def plot_loss(losses, title="Training Loss", filename=None):
     plt.figure(figsize=(10, 6))
@@ -547,12 +555,12 @@ def plot_loss(losses, title="Training Loss", filename=None):
         plt.savefig(filename, format='pdf', dpi=600)
     plt.show()
     
-# Train the model
-# Train the model
-model, beta_net, loss_history = train_model(model, beta_net, optimizer, t, data_scaled, N, earlystopping, num_epochs, loss_history, scheduler)
 
-# # Train the model
-# model, beta_net, loss_history = train_model(model, beta_net, model_optimizer, params_optimizer, t, data_scaled, N, earlystopping, num_epochs, loss_history, model_scheduler, params_scheduler)
+# Train the model
+# model, beta_net, loss_history = train_model(model, beta_net, optimizer, t, data_scaled, N, earlystopping, num_epochs, loss_history, scheduler)
+
+# Train the model
+model, beta_net, loss_history = train_model(model, beta_net, model_optimizer, params_optimizer, t, data_scaled, N, earlystopping, num_epochs, loss_history, model_scheduler, params_scheduler)
 
 # Plot the loss history
 plot_loss(loss_history, title="Training Loss", filename="../../reports/England/loss_history.pdf")
