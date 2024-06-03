@@ -198,6 +198,14 @@ def load_preprocess_data(filepath, areaname, recovery_period=16, rolling_window=
 
 data = load_preprocess_data("../../data/processed/england_data.csv", areaname, recovery_period=21, rolling_window=7, end_date="2021-12-31")
 
+plt.plot(data["date"], data["new_deceased"])
+plt.title("New Deceased over time")
+plt.xlabel("Date")
+plt.ylabel("New Deceased")
+plt.xticks(rotation=45)
+plt.tight_layout()
+# plt.savefig("../../reports/figures/S(t)_over_time.pdf")
+plt.show()
 
 def prepare_tensors(data, device):
     """Prepare tensors for training."""

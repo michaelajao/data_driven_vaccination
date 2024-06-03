@@ -25,7 +25,7 @@ os.makedirs("../../reports/parameters", exist_ok=True)
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
 # Device setup for CUDA or CPU
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Set random seed for reproducibility
 seed = 42
@@ -157,10 +157,10 @@ def load_preprocess_data(filepath, areaname, recovery_period=16, rolling_window=
     df = pd.read_csv(filepath)
     
     # Select the columns of interest
-    df = df[df["nhs_region"] == areaname].reset_index(drop=True)
+    df = df[df["areaName"] == areaname].reset_index(drop=True)
     
-    # reset the index
-    df = df[::-1].reset_index(drop=True)  # Reverse dataset if needed
+    # # reset the index
+    # df = df[::-1].reset_index(drop=True)  # Reverse dataset if needed
     
     # Convert the date column to datetime
     df["date"] = pd.to_datetime(df["date"])
@@ -196,7 +196,7 @@ def load_preprocess_data(filepath, areaname, recovery_period=16, rolling_window=
     
     return df
 
-data = load_preprocess_data("../../data/processed/merged_data.csv", areaname, recovery_period=21, rolling_window=7, end_date="2020-08-31")
+data = load_preprocess_data("../../data/processed/merged_nhs_covid_data.csv", areaname, recovery_period=21, rolling_window=7, end_date="2020-08-31")
 
 plt.plot(data["date"], data["new_deceased"])
 plt.title("New Deceased over time")

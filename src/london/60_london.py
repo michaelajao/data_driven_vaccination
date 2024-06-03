@@ -25,7 +25,7 @@ os.makedirs("../../reports/parameters", exist_ok=True)
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
 # Device setup for CUDA or CPU
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
 # Set random seed for reproducibility
 seed = 42
@@ -99,10 +99,6 @@ plt.rcParams.update(
     }
 )
 
-def safe_mean_absolute_percentage_error(y_true, y_pred, epsilon=1e-10):
-    """Calculate the Mean Absolute Percentage Error (MAPE) safely."""
-    return np.mean(np.abs((y_true - y_pred) / np.maximum(np.abs(y_true), epsilon))) * 100
-
 def normalized_root_mean_square_error(y_true, y_pred):
     """Calculate the Normalized Root Mean Square Error (NRMSE)."""
     return np.sqrt(mean_squared_error(y_true, y_pred)) / (np.max(y_true) - np.min(y_true))
@@ -117,37 +113,27 @@ def safe_mean_absolute_scaled_error(y_true, y_pred, y_train, epsilon=1e-10):
 
 def calculate_errors(y_true, y_pred, y_train, train_size, areaname):
     """Calculate and print various error metrics."""
-    mape = safe_mean_absolute_percentage_error(y_true, y_pred)
+    mape = mean_absolute_percentage_error(y_true, y_pred)
     nrmse = normalized_root_mean_square_error(y_true, y_pred)
     mase = safe_mean_absolute_scaled_error(y_true, y_pred, y_train)
     rmse = np.sqrt(mean_squared_error(y_true, y_pred))
     mae = mean_absolute_error(y_true, y_pred)
+    mse = mean_squared_error(y_true, y_pred)
 
     print(f"Mean Absolute Percentage Error (MAPE): {mape:.2f}%")
     print(f"Normalized Root Mean Square Error (NRMSE): {nrmse:.4f}")
     print(f"Mean Absolute Scaled Error (MASE): {mase:.4f}")
     print(f"Root Mean Square Error (RMSE): {rmse:.4f}")
     print(f"Mean Absolute Error (MAE): {mae:.4f}")
+    print(f"Mean Squared Error (MSE): {mse:.4f}")
     
-    # save as csv
-    metrics = pd.DataFrame({
-        "MAPE": [mape],
-        "NRMSE": [nrmse],
-        "MASE": [mase],
-        "RMSE": [rmse],
-        "MAE": [mae]
-    })
-    
-    metrics.to_csv(f"../../reports/results/{train_size}_{areaname}_metrics.csv", index=False)
-    
-    return mape, nrmse, mase, rmse, mae
+    return mape, nrmse, mase, rmse, mae, mse
 
 def calculate_all_metrics(actual, predicted, train_data, label, train_size, areaname):
     """Calculate metrics for each state."""
     print(f"\nMetrics for {label}:")
-    mape, nrmse, mase, rmse, mae = calculate_errors(actual, predicted, train_data, train_size, areaname)
-    return mape, nrmse, mase, rmse, mae
-
+    mape, nrmse, mase, rmse, mae, mse = calculate_errors(actual, predicted, train_data, train_size, areaname)
+    return mape, nrmse, mase, rmse, mae, mse
 
 # Define the SEIRD model differential equations
 def seird_model(y, t, N, beta, alpha, rho, ds, da, omega, dH, mu, gamma_c, delta_c, eta):
@@ -171,10 +157,10 @@ def load_preprocess_data(filepath, areaname, recovery_period=16, rolling_window=
     df = pd.read_csv(filepath)
     
     # Select the columns of interest
-    df = df[df["nhs_region"] == areaname].reset_index(drop=True)
+    df = df[df["areaName"] == areaname].reset_index(drop=True)
     
     # reset the index
-    df = df[::-1].reset_index(drop=True)  # Reverse dataset if needed
+    # df = df[::-1].reset_index(drop=True)  # Reverse dataset if needed
     
     # Convert the date column to datetime
     df["date"] = pd.to_datetime(df["date"])
@@ -210,7 +196,7 @@ def load_preprocess_data(filepath, areaname, recovery_period=16, rolling_window=
     
     return df
 
-data = load_preprocess_data("../../data/processed/merged_data.csv", areaname, recovery_period=21, rolling_window=7, end_date="2020-08-31")
+data = load_preprocess_data("../../data/processed/merged_nhs_covid_data.csv", areaname, recovery_period=21, rolling_window=7, end_date="2020-08-31")
 
 plt.plot(data["date"], data["new_deceased"])
 plt.title("New Deceased over time")
@@ -533,17 +519,40 @@ def train_model(model, optimizer, scheduler, earlystopping, num_epochs, t, tenso
 # Training with regularization
 loss_history, model = train_model(model, optimizer, scheduler, earlystopping, num_epochs, t, tensor_data, index, loss_history, lambda_reg=1e-4)
 
-# plot the loss history
-def plot_loss(losses, title):
+# Function to plot the loss history
+def plot_loss(losses, title="Training Loss", filename=None):
+    plt.figure(figsize=(10, 6))
     plt.plot(np.arange(1, len(losses) + 1), losses, label='Loss', color='black')
     plt.yscale('log')
-    plt.title(f"{title} loss")
+    plt.title(f"{title}")
     plt.xlabel("Epoch")
     plt.ylabel("Loss (log scale)")
     plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    if filename:
+        plt.savefig(filename, format='pdf', dpi=600)
     plt.show()
-    
-plot_loss(loss_history, "EINN")
+
+# Function to plot the actual vs predicted values
+def plot_actual_vs_predicted(data, actual_values, predicted_values, features, train_size, areaname, filename=None):
+    fig, ax = plt.subplots(len(features), 1, figsize=(10, 12), sharex=True)
+
+    for i, feature in enumerate(features):
+        ax[i].plot(data["date"], actual_values[i], label="Actual", color="black", marker="o", markersize=3, linestyle='None')
+        ax[i].plot(data["date"], predicted_values[i], label="Predicted", color="red", linestyle="--", linewidth=2)
+        ax[i].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
+        ax[i].set_ylabel(feature.replace("_", " ").title())
+        ax[i].legend()
+        ax[i].grid(True, linestyle='--', alpha=0.7)
+
+    ax[-1].set_xlabel("Date")
+    plt.suptitle(f"EINN Model Predictions for {areaname}")
+    plt.xticks(rotation=45)
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
+    if filename:
+        plt.savefig(filename, format='pdf', dpi=600)
+    plt.show()
 
 
 # Generate predictions
@@ -572,47 +581,16 @@ Is_pred, H_pred, C_pred, D_pred, R_pred = np.split(original_scale_predictions, 5
 actual_values = data[features].values
 Is_actual, H_actual, C_actual, D_actual, R_actual = np.split(actual_values, 5, axis=1)
 
+# Convert actual and predicted values to lists of arrays for easier plotting
+actual_values = [Is_actual, H_actual, C_actual, D_actual, R_actual]
+predicted_values = [Is_pred, H_pred, C_pred, D_pred, R_pred]
 
-# Plot each compartment actual vs predicted values
-fig, ax = plt.subplots(5, 1, figsize=(10, 12), sharex=True)
 
-# Plot the actual values
-ax[0].plot(data["date"], Is_actual, label="Actual", color="black", marker="o", markersize=3)
-ax[1].plot(data["date"], H_actual, label="Actual", color="black", marker="o", markersize=3)
-ax[2].plot(data["date"], C_actual, label="Actual", color="black", marker="o", markersize=3)
-ax[3].plot(data["date"], D_actual, label="Actual", color="black", marker="o", markersize=3)
-ax[4].plot(data["date"], R_actual, label="Actual", color="black", marker="o", markersize=3)
-ax[0].legend()
-# Plot the predicted values
-ax[0].plot(data["date"], Is_pred, label="Predicted", color="red", linestyle="--")
-ax[1].plot(data["date"], H_pred, label="Predicted", color="red", linestyle="--")
-ax[2].plot(data["date"], C_pred, label="Predicted", color="red", linestyle="--")
-ax[3].plot(data["date"], D_pred, label="Predicted", color="red", linestyle="--")
-ax[4].plot(data["date"], R_pred, label="Predicted", color="red", linestyle="--")
-ax[0].legend()
-# Set the labels
-ax[0].set_ylabel("New Confirmed")
-ax[1].set_ylabel("New Admissions")
-ax[2].set_ylabel("Occupied MV Beds")
-ax[3].set_ylabel("New Deceased")
-ax[4].set_ylabel("Recovered")
-ax[4].set_xlabel("Date")
+# Plot loss history
+plot_loss(loss_history, title="EINN Training Loss", filename=f"../../reports/figures/loss/{train_size}_{areaname}_loss_history.pdf")
 
-# Set the train_size line
-ax[0].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
-ax[1].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
-ax[2].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
-ax[3].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
-ax[4].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
-ax[0].legend()
-
-# Set the title
-plt.suptitle("EINN Model Predictions")
-plt.xticks(rotation=45)
-# plt.legend()
-plt.tight_layout()
-plt.savefig(f"../../reports/figures/{train_size}_{areaname}_predictions.pdf")
-plt.show()
+# Plot actual vs predicted values
+plot_actual_vs_predicted(data, actual_values, predicted_values, features, train_size, areaname, filename=f"../../reports/figures/Pinn/{train_size}_{areaname}_predictions.pdf")
 
 
 # Calculate and print the metrics for each state
@@ -623,6 +601,9 @@ metrics["C"] = calculate_all_metrics(C_actual, C_pred, C_train.cpu().numpy(), "O
 metrics["D"] = calculate_all_metrics(D_actual, D_pred, D_train.cpu().numpy(), "New Deceased", train_size, areaname)
 metrics["R"] = calculate_all_metrics(R_actual, R_pred, R_train.cpu().numpy(), "Recovered", train_size, areaname)
 
+# save the metrics as csv
+metrics_df = pd.DataFrame(metrics)
+metrics_df.to_csv(f"../../reports/results/{train_size}_{areaname}_metrics.csv", index=False)
 # extract the learned parameters
 beta = model.beta.cpu().item()
 omega = model.omega.cpu().item()
