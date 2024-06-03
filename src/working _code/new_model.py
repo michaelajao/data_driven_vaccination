@@ -1,4 +1,4 @@
-import os
+``import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -99,10 +99,6 @@ plt.rcParams.update(
     }
 )
 
-def safe_mean_absolute_percentage_error(y_true, y_pred, epsilon=1e-10):
-    """Calculate the Mean Absolute Percentage Error (MAPE) safely."""
-    return np.mean(np.abs((y_true - y_pred) / np.maximum(np.abs(y_true), epsilon))) * 100
-
 def normalized_root_mean_square_error(y_true, y_pred):
     """Calculate the Normalized Root Mean Square Error (NRMSE)."""
     return np.sqrt(mean_squared_error(y_true, y_pred)) / (np.max(y_true) - np.min(y_true))
@@ -117,36 +113,27 @@ def safe_mean_absolute_scaled_error(y_true, y_pred, y_train, epsilon=1e-10):
 
 def calculate_errors(y_true, y_pred, y_train, train_size, areaname):
     """Calculate and print various error metrics."""
-    mape = safe_mean_absolute_percentage_error(y_true, y_pred)
+    mape = mean_absolute_percentage_error(y_true, y_pred)
     nrmse = normalized_root_mean_square_error(y_true, y_pred)
     mase = safe_mean_absolute_scaled_error(y_true, y_pred, y_train)
     rmse = np.sqrt(mean_squared_error(y_true, y_pred))
     mae = mean_absolute_error(y_true, y_pred)
+    mse = mean_squared_error(y_true, y_pred)
 
     print(f"Mean Absolute Percentage Error (MAPE): {mape:.2f}%")
     print(f"Normalized Root Mean Square Error (NRMSE): {nrmse:.4f}")
     print(f"Mean Absolute Scaled Error (MASE): {mase:.4f}")
     print(f"Root Mean Square Error (RMSE): {rmse:.4f}")
     print(f"Mean Absolute Error (MAE): {mae:.4f}")
+    print(f"Mean Squared Error (MSE): {mse:.4f}")
     
-    # save as csv
-    metrics = pd.DataFrame({
-        "MAPE": [mape],
-        "NRMSE": [nrmse],
-        "MASE": [mase],
-        "RMSE": [rmse],
-        "MAE": [mae]
-    })
-    
-    metrics.to_csv(f"../../reports/results/{train_size}_{areaname}_metrics.csv", index=False)
-    
-    return mape, nrmse, mase, rmse, mae
+    return mape, nrmse, mase, rmse, mae, mse
 
 def calculate_all_metrics(actual, predicted, train_data, label, train_size, areaname):
     """Calculate metrics for each state."""
     print(f"\nMetrics for {label}:")
-    mape, nrmse, mase, rmse, mae = calculate_errors(actual, predicted, train_data, train_size, areaname)
-    return mape, nrmse, mase, rmse, mae
+    mape, nrmse, mase, rmse, mae, mse = calculate_errors(actual, predicted, train_data, train_size, areaname)
+    return mape, nrmse, mase, rmse, mae, mse
 
 # Define the SEIRD model differential equations
 def seird_model(y, t, N, beta, alpha, rho, ds, da, omega, dH, mu, gamma_c, delta_c, eta):
@@ -247,19 +234,22 @@ class EpiNet(nn.Module):
         self.retain_seed = 100
         torch.manual_seed(self.retain_seed)
 
+        # Input layer
         layers = [nn.Linear(1, hidden_neurons), nn.Tanh()]
 
+        # Hidden layers
         for _ in range(num_layers - 1):
             layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
 
+        # Output layer
         layers.append(nn.Linear(hidden_neurons, output_size))
         self.net = nn.Sequential(*layers)
+        
+        # Initialize weights using Xavier initialization
         self.init_xavier()
         
-        
     def forward(self, t):
-            output = self.net(t)
-            return output
+        return torch.sigmoid(self.net(t))  # Forward pass
 
     def init_xavier(self):
         def init_weights(layer):
@@ -268,7 +258,8 @@ class EpiNet(nn.Module):
                 nn.init.xavier_normal_(layer.weight, gain=g)
                 if layer.bias is not None:
                     layer.bias.data.fill_(0)
-
+                    
+        # Apply the weight initialization to the network
         self.net.apply(init_weights)
 
 
@@ -276,22 +267,21 @@ class BetaNet(nn.Module):
     def __init__(self, num_layers=2, hidden_neurons=10):
         super(BetaNet, self).__init__()
         self.retain_seed = 100
-        torch.manual_seed(self.retain_seed)
+        torch.manual_seed(self.retain_seed)  # Ensure reproducibility
 
-        layers = [nn.Linear(1, hidden_neurons), nn.ReLU()]
+        layers = [nn.Linear(1, hidden_neurons), nn.ReLU()]  # Input layer
 
         for _ in range(num_layers - 1):
-            layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.ReLU()])
+            layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.ReLU()])  # Hidden layers
 
-        layers.append(nn.Linear(hidden_neurons, 6))
+        layers.append(nn.Linear(hidden_neurons, 6))  # Output layer
         self.net = nn.Sequential(*layers)
-        # self.init_xavier()
         
     def forward(self, t):
-        return self.net(t)
+        return self.net(t)  # Forward pass
 
     def get_params(self, t):
-        raw_params = self.net(t)
+        raw_params = self.net(t)  # Forward pass to get raw parameters
         # Apply non-negative constraints to the parameters using sigmoid
         beta = torch.sigmoid(raw_params[:, 0]) * 0.9 + 0.1
         omega = torch.sigmoid(raw_params[:, 1]) * 0.09 + 0.01
@@ -422,7 +412,7 @@ class EarlyStopping:
         else:
             self.best_score = score
             self.counter = 0
- 
+
 # Initialize the model and optimizer           
 model = EpiNet(num_layers=5, hidden_neurons=32, output_size=8).to(device)
 beta_net = BetaNet(num_layers=5, hidden_neurons=32).to(device)
@@ -431,12 +421,12 @@ beta_net = BetaNet(num_layers=5, hidden_neurons=32).to(device)
 N = data["population"].iloc[0]
 
 # Define the optimizer and scheduler
-model_optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-2)
-params_optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-2)
+optimizer = optim.Adam(list(model.parameters()) + list(beta_net.parameters()), lr=1e-4)
+# params_optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-2)
 
-
-model_scheduler = StepLR(model_optimizer, step_size=10000, gamma=0.9)
-params_scheduler = StepLR(params_optimizer, step_size=10000, gamma=0.9)
+scheduler = StepLR(optimizer, step_size=5000, gamma=0.9)
+# model_scheduler = StepLR(model_optimizer, step_size=5000, gamma=0.9)
+# params_scheduler = StepLR(params_optimizer, step_size=5000, gamma=0.9)
 
 
 earlystopping = EarlyStopping(patience=100, verbose=False)
@@ -447,16 +437,14 @@ t = torch.tensor(np.arange(1, len(data) + 1), dtype=torch.float32).view(-1, 1).t
 # Initialize the loss history
 loss_history = []
 
-
-# Train the model
-def train_model(model, beta_net, model_optimizer, params_optimizer, t, data_scaled, N, earlystopping, num_epochs, loss_history, model_scheduler, params_scheduler, lambda_reg=1e-4):
+# train the model
+def train_model(model, beta_net, optimizer, t, data_scaled, N, earlystopping, num_epochs, loss_history, scheduler, lambda_reg=1e-4):
     for epoch in tqdm(range(num_epochs)):
         model.train()
         beta_net.train()
         
         # Zero the gradients
-        model_optimizer.zero_grad()
-        params_optimizer.zero_grad()
+        optimizer.zero_grad()
         
         # Forward pass
         model_output = model(t)
@@ -468,12 +456,10 @@ def train_model(model, beta_net, model_optimizer, params_optimizer, t, data_scal
         loss.backward()
         
         # Update the weights
-        model_optimizer.step()
-        params_optimizer.step()
+        optimizer.step()
         
         # Update the learning rate
-        model_scheduler.step()
-        params_scheduler.step()
+        scheduler.step()
         
         # Save the loss
         loss_history.append(loss.item())
@@ -484,10 +470,52 @@ def train_model(model, beta_net, model_optimizer, params_optimizer, t, data_scal
             print("Early stopping")
             break
         
-        if (epoch + 1) % 100 == 0 or epoch == 0:
+        if (epoch + 1) % 500 == 0 or epoch == 0:
             print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {loss.item():.6f}")
             
     return model, beta_net, loss_history
+
+
+# Train the model
+# def train_model(model, beta_net, model_optimizer, params_optimizer, t, data_scaled, N, earlystopping, num_epochs, loss_history, model_scheduler, params_scheduler, lambda_reg=1e-4):
+#     for epoch in tqdm(range(num_epochs)):
+#         model.train()
+#         beta_net.train()
+        
+#         # Zero the gradients
+#         model_optimizer.zero_grad()
+#         params_optimizer.zero_grad()
+        
+#         # Forward pass
+#         model_output = model(t)
+#         parameters = beta_net.get_params(t)
+        
+#         # Calculate the loss
+#         loss = einn_loss(model_output, data_scaled, parameters, t, model, lambda_reg)
+#         # Backward pass
+#         loss.backward()
+        
+#         # Update the weights
+#         model_optimizer.step()
+#         params_optimizer.step()
+        
+#         # Update the learning rate
+#         model_scheduler.step()
+#         params_scheduler.step()
+        
+#         # Save the loss
+#         loss_history.append(loss.item())
+        
+#         # Early stopping
+#         earlystopping(loss.item())
+#         if earlystopping.early_stop:
+#             print("Early stopping")
+#             break
+        
+#         if (epoch + 1) % 100 == 0 or epoch == 0:
+#             print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {loss.item():.6f}")
+            
+#     return model, beta_net, loss_history
 
 # Function to plot the loss history
 def plot_loss(losses, title="Training Loss", filename=None):
@@ -505,49 +533,238 @@ def plot_loss(losses, title="Training Loss", filename=None):
     plt.show()
     
 # Train the model
-model, beta_net, loss_history = train_model(model, beta_net, model_optimizer, params_optimizer, t, data_scaled, N, earlystopping, num_epochs, loss_history, model_scheduler, params_scheduler)
+model, beta_net, loss_history = train_model(model, beta_net, optimizer, t, data_scaled, N, earlystopping, num_epochs, loss_history, scheduler)
+
+# # Train the model
+# model, beta_net, loss_history = train_model(model, beta_net, model_optimizer, params_optimizer, t, data_scaled, N, earlystopping, num_epochs, loss_history, model_scheduler, params_scheduler)
 
 # Plot the loss history
-plot_loss(loss_history, title="Training Loss", filename="../../reports/figures/England/loss_history.pdf")
-
-# Function to plot the actual vs predicted values
-def plot_actual_vs_predicted(data, actual_values, predicted_values, features, train_size, areaname, filename=None):
-    fig, ax = plt.subplots(len(features), 1, figsize=(10, 12), sharex=True)
-
-    for i, feature in enumerate(features):
-        ax[i].plot(data["date"], actual_values[i], label="Actual", color="black", marker="o", markersize=3, linestyle='None')
-        ax[i].plot(data["date"], predicted_values[i], label="Predicted", color="red", linestyle="--", linewidth=2)
-        # ax[i].axvline(data["date"].iloc[train_size], color="blue", linestyle="--", label="Train size")
-        ax[i].set_ylabel(feature.replace("_", " ").title())
-        ax[i].legend()
-        ax[i].grid(True, linestyle='--', alpha=0.7)
-
-    ax[-1].set_xlabel("Date")
-    plt.suptitle(f"EINN Model Predictions for {areaname}")
-    plt.xticks(rotation=45)
-    plt.tight_layout(rect=[0, 0, 1, 0.97])
-    if filename:
-        plt.savefig(filename, format='pdf', dpi=600)
-    plt.show()
+plot_loss(loss_history, title="Training Loss", filename="../../reports/England/loss_history.pdf")
 
 
-# Generate predictions
-model.eval()
-with torch.no_grad():
-    model_output = model(t).cpu().numpy()
+# plot the predicted values
+def plot_predictions(t, model, N, data, scaler, areaname, filename):
+    model.eval()
+    with torch.no_grad():
+        predictions = model(t).cpu().numpy()
+        
+    t_np = t.cpu().detach().numpy().flatten()
     
-# Inverse transform the data
-model_output = scaler.inverse_transform(model_output)
+    S_pred, E_pred, Ia_pred, Is_pred, H_pred, C_pred, R_pred, D_pred = predictions[:, 0], predictions[:, 1], predictions[:, 2], predictions[:, 3], predictions[:, 4], predictions[:, 5], predictions[:, 6], predictions[:, 7]
+    
+    fig, axs = plt.subplots(8, 1, figsize=(10, 30), sharex=True)
+    
+    # Plotting S (Susceptible)
+    axs[0].plot(t_np, S_pred, 'r-', label='$S_{PINN}$')
+    axs[0].set_title('Susceptible')
+    axs[0].legend()
+    
+    # Plotting E (Exposed)
+    axs[1].plot(t_np, E_pred, 'r-', label='$E_{PINN}$')
+    axs[1].set_title('Exposed')
+    axs[1].legend()
+    
+    # Plotting Ia (Asymptomatic)
+    axs[2].plot(t_np, Ia_pred, 'r-', label='$Ia_{PINN}$')
+    axs[2].set_title('Asymptomatic')
+    axs[2].legend()
+    
+    # Plotting Is (Symptomatic)
+    axs[3].plot(t_np, Is_pred, 'r-', label='$Is_{PINN}$')
+    axs[3].set_title('Symptomatic')
+    axs[3].legend()
+    
+    # Plotting H (Hospitalized)
+    axs[4].plot(t_np, H_pred, 'r-', label='$H_{PINN}$')
+    axs[4].set_title('Hospitalized')
+    axs[4].legend()
+    
+    # Plotting C (Critical)
+    axs[5].plot(t_np, C_pred, 'r-', label='$C_{PINN}$')
+    axs[5].set_title('Critical')
+    axs[5].legend()
+    
+    # Plotting R (Recovered)
+    axs[6].plot(t_np, R_pred, 'r-', label='$R_{PINN}$')
+    axs[6].set_title('Recovered')
+    axs[6].legend()
+    
+    # Plotting D (Deceased)
+    axs[7].plot(t_np, D_pred, 'r-', label='$D_{PINN}$')
+    axs[7].set_title('Deceased')
+    axs[7].legend()
+    
 
-# Prepare the actual and predicted values
-actual_values = [data[feature].values for feature in features]
-predicted_values = [model_output[:, i] for i in range(model_output.shape[1])]
+    plt.tight_layout()
+    # plt.savefig(filename, format='pdf', dpi=600)
+    plt.show()
+    
+# Plot the predicted values
+plot_predictions(t, model, N, data_scaled, scaler, areaname, filename="../../reports/England/predictions.pdf")
+    
+    
+# plot the time varying parameters
+def plot_parameters(t, beta_net, filename):
+    beta, omega, mu, gamma_c, delta_c, eta = beta_net.get_params(t)
+    
+    beta = beta.cpu().detach().numpy().flatten()
+    omega = omega.cpu().detach().numpy().flatten()
+    mu = mu.cpu().detach().numpy().flatten()
+    gamma_c = gamma_c.cpu().detach().numpy().flatten()
+    delta_c = delta_c.cpu().detach().numpy().flatten()
+    eta = eta.cpu().detach().numpy().flatten()
+    
+    t_np = t.cpu().detach().numpy().flatten()
+    
+    fig, axs = plt.subplots(6, 1, figsize=(10, 20), sharex=True)
+    
+    # Plotting beta
+    axs[0].plot(t_np, beta, 'r-', label='$\\beta_{PINN}$')
+    axs[0].set_title('Transmission Rate')
+    axs[0].legend()
+    
+    # Plotting omega
+    axs[1].plot(t_np, omega, 'r-', label='$\\omega_{PINN}$')
+    axs[1].set_title('Hospitalization Rate')
+    axs[1].legend()
+    
+    # Plotting mu
+    axs[2].plot(t_np, mu, 'r-', label='$\\mu_{PINN}$')
+    axs[2].set_title('Mortality Rate')
+    axs[2].legend()
+    
+    # Plotting gamma_c
+    axs[3].plot(t_np, gamma_c, 'r-', label='$\\gamma_c_{PINN}$')
+    axs[3].set_title('Recovery Rate')
+    axs[3].legend()
+    
+    # Plotting delta_c
+    axs[4].plot(t_np, delta_c, 'r-', label='$\\delta_c_{PINN}$')
+    axs[4].set_title('Mortality Rate')
+    axs[4].legend()
+    
+    # Plotting eta
+    axs[5].plot(t_np, eta, 'r-', label='$\\eta_{PINN}$')
+    axs[5].set_title('Recovery Rate')
+    axs[5].legend()
+    
+    plt.tight_layout()
+    # plt.savefig(filename, format='pdf', dpi=600)
+    plt.show()
+    
+# Plot the time varying parameters
+plot_parameters(t, beta_net, filename="../../reports/England/parameters.pdf")
 
-# Plot the actual vs predicted values
-plot_actual_vs_predicted(data, actual_values, predicted_values, features, len(data) - len(data_scaled), areaname, filename=f"../../reports/figures/England/{areaname}_actual_vs_predicted.pdf")
-
-# Calculate the metrics
-mape, nrmse, mase, rmse, mae = calculate_all_metrics(np.array(actual_values).T, np.array(predicted_values).T, data[features].values, len(data) - len(data_scaled), areaname)
 
 
+# plot the result
+def plot_results(t, model, N, data, scaler, areaname, filename):
+    model.eval()
+    with torch.no_grad():
+        predictions = model(t).cpu().numpy()
+        
+    t_np = t.cpu().detach().numpy().flatten()
+    
+    I_data, H_data, C_data, D_data, R_data = data[:, 0].view(-1, 1), data[:, 1].view(-1, 1), data[:, 2].view(-1, 1), data[:, 3].view(-1, 1), data[:, 4].view(-1, 1)
+    
+    I_pred, H_pred, C_pred, D_pred, R_pred = predictions[:, 3], predictions[:, 4], predictions[:, 5], predictions[:, 6], predictions[:, 7]
+    
+    fig, axs = plt.subplots(5, 1, figsize=(10, 20), sharex=True)
+    
+    # Plotting I (Infected)
+    axs[0].scatter(t_np, I_data.cpu().detach().numpy().flatten(), color='black', label='$I_{Data}$', s=10)
+    axs[0].plot(t_np, I_pred, 'r-', label='$I_{PINN}$')
+    axs[0].set_title('Infected')
+    axs[0].legend()
+    
+    # Plotting H (Hospitalized)
+    axs[1].scatter(t_np, H_data.cpu().detach().numpy().flatten(), color='black', label='$H_{Data}$', s=10)
+    axs[1].plot(t_np, H_pred, 'r-', label='$H_{PINN}$')
+    axs[1].set_title('Hospitalized')
+    axs[1].legend()
+    
+    # Plotting C (Critical)
+    axs[2].scatter(t_np, C_data.cpu().detach().numpy().flatten(), color='black', label='$C_{Data}$', s=10)
+    axs[2].plot(t_np, C_pred, 'r-', label='$C_{PINN}$')
+    axs[2].set_title('Critical')
+    axs[2].legend()
+    
+    # Plotting R (Recovered)
+    axs[3].scatter(t_np, R_data.cpu().detach().numpy().flatten(), color='black', label='$R_{Data}$', s=10)
+    axs[3].plot(t_np, R_pred, 'r-', label='$R_{PINN}$')
+    axs[3].set_title('Recovered')
+    axs[3].legend()
+    
+    # Plotting D (Deceased)
+    axs[4].scatter(t_np, D_data.cpu().detach().numpy().flatten(), color='black', label='$D_{Data}$', s=10)
+    axs[4].plot(t_np, D_pred, 'r-', label='$D_{PINN}$')
+    axs[4].set_title('Deceased')
+    axs[4].legend()
+    
+    plt.tight_layout()
+    plt.savefig(filename, format='pdf', dpi=600)
+    plt.show()
+    
+# Plot the results
+plot_results(t, model, N, data_scaled, scaler, areaname, filename="../../reports/England/predictions.pdf")
 
+
+
+
+# Plot results
+# def plot_results(t, I_pred,  N):
+#     model.eval()
+#     with torch.no_grad():
+#         predictions = model(t).cpu().numpy()
+
+#     t_np = t.cpu().detach().numpy().flatten()
+
+
+#     fig, axs = plt.subplots(6, 1, figsize=(10, 20))
+
+#     # Plotting S (Susceptible)
+#     S_pred = N - I_pred - H_pred - C_pred - R_pred - D_pred
+#     axs[0].plot(t_np, S_pred, 'r-', label='$S_{PINN}$')
+#     axs[0].set_title('S')
+#     axs[0].set_xlabel('Time t (days)')
+#     axs[0].legend()
+
+#     # Plotting I (Infected)
+#     axs[1].scatter(t_np, I_data.cpu().detach().numpy().flatten(), color='black', label='$I_{Data}$', s=10)
+#     axs[1].plot(t_np, I_pred, 'r-', label='$I_{PINN}$')
+#     axs[1].set_title('I')
+#     axs[1].set_xlabel('Time t (days)')
+#     axs[1].legend()
+
+#     # Plotting H (Hospitalized)
+#     axs[2].plot(t_np, H_pred, 'r-', label='$H_{PINN}$')
+#     axs[2].set_title('H')
+#     axs[2].set_xlabel('Time t (days)')
+#     axs[2].legend()
+
+#     # Plotting C (Critical)
+#     axs[3].plot(t_np, C_pred, 'r-', label='$C_{PINN}$')
+#     axs[3].set_title('C')
+#     axs[3].set_xlabel('Time t (days)')
+#     axs[3].legend()
+
+#     # Plotting R (Recovered)
+#     axs[4].scatter(t_np, R_data.cpu().detach().numpy().flatten(), color='black', label='$R_{Data}$', s=10)
+#     axs[4].plot(t_np, R_pred, 'r-', label='$R_{PINN}$')
+#     axs[4].set_title('R')
+#     axs[4].set_xlabel('Time t (days)')
+#     axs[4].legend()
+
+#     # Plotting D (Deceased)
+#     axs[5].scatter(t_np, D_data.cpu().detach().numpy().flatten(), color='black', label='$D_{Data}$', s=10)
+#     axs[5].plot(t_np, D_pred, 'r-', label='$D_{PINN}$')
+#     axs[5].set_title('D')
+#     axs[5].set_xlabel('Time t (days)')
+#     axs[5].legend()
+
+#     plt.tight_layout()
+#     # plt.savefig(f"../../reports/figures/{title}.pdf")
+#     plt.show()
+
+
+# Plot the actual vs predicted values``
