@@ -1,4 +1,4 @@
-``import os
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -257,7 +257,7 @@ class EpiNet(nn.Module):
                 g = nn.init.calculate_gain("tanh")
                 nn.init.xavier_normal_(layer.weight, gain=g)
                 if layer.bias is not None:
-                    layer.bias.data.fill_(0)
+                    layer.bias.data.fill_(0.01)
                     
         # Apply the weight initialization to the network
         self.net.apply(init_weights)
