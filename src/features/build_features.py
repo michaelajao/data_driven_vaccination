@@ -55,11 +55,11 @@ numeric_columns = merged_data.select_dtypes(include=[np.number]).columns.tolist(
 aggregated_data = merged_data.groupby(['areaName', 'date'])[numeric_columns].sum().reset_index()
 
 # Ensure target directory exists
-os.makedirs("/mnt/data/processed", exist_ok=True)
+os.makedirs("../../data/processed", exist_ok=True)
 
 # Save the cleaned and aggregated data
-aggregated_data.to_pickle("/mnt/data/processed/merged_nhs_covid_data.pkl")
-aggregated_data.to_csv("/mnt/data/processed/merged_nhs_covid_data.csv")
+aggregated_data.to_pickle("../../data/processed/merged_nhs_covid_data.pkl")
+aggregated_data.to_csv("../../data/processed/merged_nhs_covid_data.csv")
 
 # Aggregate data to create England-wide data
 england_data = aggregated_data.groupby("date")[numeric_columns].sum().reset_index()
