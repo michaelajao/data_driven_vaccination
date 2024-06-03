@@ -257,7 +257,7 @@ class EpiNet(nn.Module):
         self.init_xavier()
         
     def forward(self, t):
-        return torch.sigmoid(self.net(t))  # Forward pass
+        return self.net(t)  # Forward pass
 
     def init_xavier(self):
         def init_weights(layer):
@@ -291,12 +291,12 @@ class BetaNet(nn.Module):
     def get_params(self, t):
         raw_params = self.net(t)  # Forward pass to get raw parameters
         # Apply non-negative constraints to the parameters using sigmoid
-        beta = torch.sigmoid(raw_params[:, 0]) * 0.9 + 0.1
-        omega = torch.sigmoid(raw_params[:, 1]) * 0.09 + 0.01
-        mu = torch.sigmoid(raw_params[:, 2]) * 0.09 + 0.01
-        gamma_c = torch.sigmoid(raw_params[:, 3]) * 0.09 + 0.01
-        delta_c = torch.sigmoid(raw_params[:, 4]) * 0.09 + 0.01
-        eta = torch.sigmoid(raw_params[:, 5]) * 0.09 + 0.01
+        beta = torch.sigmoid(raw_params[:, 0]) * 0.8 + 0.2
+        omega = torch.sigmoid(raw_params[:, 1]) * 0.08 + 0.02
+        mu = torch.sigmoid(raw_params[:, 2]) * 0.08 + 0.02
+        gamma_c = torch.sigmoid(raw_params[:, 3]) * 0.08 + 0.02
+        delta_c = torch.sigmoid(raw_params[:, 4]) * 0.08 + 0.02
+        eta = torch.sigmoid(raw_params[:, 5]) * 0.08 + 0.02
         return beta, omega, mu, gamma_c, delta_c, eta
     
 
@@ -480,6 +480,13 @@ def train_model(model, beta_net, optimizer, t, data_scaled, N, earlystopping, nu
         
         if (epoch + 1) % 500 == 0 or epoch == 0:
             print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {loss.item():.6f}")
+            beta, omega, mu, gamma_c, delta_c, eta = parameters
+            print(f"beta (first 5 values): {beta[:5].cpu().detach().numpy().flatten()}")
+            print(f"omega (first 5 values): {omega[:5].cpu().detach().numpy().flatten()}")
+            print(f"mu (first 5 values): {mu[:5].cpu().detach().numpy().flatten()}")
+            print(f"gamma_c (first 5 values): {gamma_c[:5].cpu().detach().numpy().flatten()}")
+            print(f"delta_c (first 5 values): {delta_c[:5].cpu().detach().numpy().flatten()}")
+            print(f"eta (first 5 values): {eta[:5].cpu().detach().numpy().flatten()}")
             
     return model, beta_net, loss_history
 
@@ -540,6 +547,7 @@ def plot_loss(losses, title="Training Loss", filename=None):
         plt.savefig(filename, format='pdf', dpi=600)
     plt.show()
     
+# Train the model
 # Train the model
 model, beta_net, loss_history = train_model(model, beta_net, optimizer, t, data_scaled, N, earlystopping, num_epochs, loss_history, scheduler)
 
@@ -610,8 +618,9 @@ def plot_predictions(t, model, N, data, scaler, areaname, filename):
 # Plot the predicted values
 plot_predictions(t, model, N, data_scaled, scaler, areaname, filename="../../reports/England/predictions.pdf")
     
-    
 # plot the time varying parameters
+
+# Debugging by printing initial and final parameters
 def plot_parameters(t, beta_net, filename):
     beta, omega, mu, gamma_c, delta_c, eta = beta_net.get_params(t)
     
@@ -627,41 +636,58 @@ def plot_parameters(t, beta_net, filename):
     fig, axs = plt.subplots(6, 1, figsize=(10, 20), sharex=True)
     
     # Plotting beta
-    axs[0].plot(t_np, beta, 'r-', label='$\\beta_{PINN}$')
+    axs[0].plot(t_np, beta, 'r-', label='$\\beta_{\mathrm{PINN}}$')
     axs[0].set_title('Transmission Rate')
     axs[0].legend()
     
     # Plotting omega
-    axs[1].plot(t_np, omega, 'r-', label='$\\omega_{PINN}$')
+    axs[1].plot(t_np, omega, 'r-', label='$\\omega_{\mathrm{PINN}}$')
     axs[1].set_title('Hospitalization Rate')
     axs[1].legend()
     
     # Plotting mu
-    axs[2].plot(t_np, mu, 'r-', label='$\\mu_{PINN}$')
+    axs[2].plot(t_np, mu, 'r-', label='$\\mu_{\mathrm{PINN}}$')
     axs[2].set_title('Mortality Rate')
     axs[2].legend()
     
     # Plotting gamma_c
-    axs[3].plot(t_np, gamma_c, 'r-', label='$\\gamma_c_{PINN}$')
+    axs[3].plot(t_np, gamma_c, 'r-', label='$\\gamma_{c, \mathrm{PINN}}$')
     axs[3].set_title('Recovery Rate')
     axs[3].legend()
     
     # Plotting delta_c
-    axs[4].plot(t_np, delta_c, 'r-', label='$\\delta_c_{PINN}$')
-    axs[4].set_title('Mortality Rate')
+    axs[4].plot(t_np, delta_c, 'r-', label='$\\delta_{c, \mathrm{PINN}}$')
+    axs[4].set_title('Critical Mortality Rate')
     axs[4].legend()
     
     # Plotting eta
-    axs[5].plot(t_np, eta, 'r-', label='$\\eta_{PINN}$')
-    axs[5].set_title('Recovery Rate')
+    axs[5].plot(t_np, eta, 'r-', label='$\\eta_{\mathrm{PINN}}$')
+    axs[5].set_title('Recovered Rate')
     axs[5].legend()
     
     plt.tight_layout()
-    # plt.savefig(filename, format='pdf', dpi=600)
+    plt.savefig(filename, format='pdf', dpi=600)
     plt.show()
+    print("Initial Parameters:")
+    print("beta:", beta[:5])
+    print("omega:", omega[:5])
+    print("mu:", mu[:5])
+    print("gamma_c:", gamma_c[:5])
+    print("delta_c:", delta_c[:5])
+    print("eta:", eta[:5])
     
+    print("Final Parameters:")
+    print("beta:", beta[-5:])
+    print("omega:", omega[-5:])
+    print("mu:", mu[-5:])
+    print("gamma_c:", gamma_c[-5:])
+    print("delta_c:", delta_c[-5:])
+    print("eta:", eta[-5:])
+
+# Adjusted parameter scaling and plot functions
 # Plot the time varying parameters
 plot_parameters(t, beta_net, filename="../../reports/England/parameters.pdf")
+
 
 
 

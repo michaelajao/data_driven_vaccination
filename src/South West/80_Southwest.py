@@ -151,7 +151,7 @@ def seird_model(y, t, N, beta, alpha, rho, ds, da, omega, dH, mu, gamma_c, delta
     return [dSdt, dEdt, dIsdt, dIadt, dHdt, dCdt, dRdt, dDdt]
 
 
-areaname = "South East"
+areaname = "South West"
 def load_preprocess_data(filepath, areaname, recovery_period=16, rolling_window=7, end_date=None):
     """Load and preprocess the COVID-19 data."""
     df = pd.read_csv(filepath)

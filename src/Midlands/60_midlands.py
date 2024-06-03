@@ -151,7 +151,7 @@ def seird_model(y, t, N, beta, alpha, rho, ds, da, omega, dH, mu, gamma_c, delta
     return [dSdt, dEdt, dIsdt, dIadt, dHdt, dCdt, dRdt, dDdt]
 
 
-areaname = "South East"
+areaname = "Midlands"
 def load_preprocess_data(filepath, areaname, recovery_period=16, rolling_window=7, end_date=None):
     """Load and preprocess the COVID-19 data."""
     df = pd.read_csv(filepath)
@@ -242,7 +242,7 @@ def split_and_scale_data(data, train_size, features, device):
 features = ["new_confirmed", "newAdmissions", "covidOccupiedMVBeds", "new_deceased", "recovered"]
 
 # set the train size in days
-train_size = 80
+train_size = 60
 
 tensor_data, scaler = split_and_scale_data(data, train_size, features, device)
 

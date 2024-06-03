@@ -25,7 +25,7 @@ os.makedirs("../../reports/parameters", exist_ok=True)
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
 # Device setup for CUDA or CPU
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Set random seed for reproducibility
 seed = 42

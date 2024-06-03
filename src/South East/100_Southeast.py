@@ -17,8 +17,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolu
 
 # Ensure the folders exist
 os.makedirs("../../models", exist_ok=True)
-os.makedirs("../../reports/figures/Pinn", exist_ok=True)
-os.makedirs("../../reports/figures/loss", exist_ok=True)
+os.makedirs("../../reports/figures", exist_ok=True)
 os.makedirs("../../reports/results", exist_ok=True)
 os.makedirs("../../reports/parameters", exist_ok=True)
 
@@ -136,8 +135,6 @@ def calculate_all_metrics(actual, predicted, train_data, label, train_size, area
     mape, nrmse, mase, rmse, mae, mse = calculate_errors(actual, predicted, train_data, train_size, areaname)
     return mape, nrmse, mase, rmse, mae, mse
 
-
-
 # Define the SEIRD model differential equations
 def seird_model(y, t, N, beta, alpha, rho, ds, da, omega, dH, mu, gamma_c, delta_c, eta):
     S, E, Is, Ia, H, C, R, D = y
@@ -162,7 +159,7 @@ def load_preprocess_data(filepath, areaname, recovery_period=16, rolling_window=
     # Select the columns of interest
     df = df[df["areaName"] == areaname].reset_index(drop=True)
     
-    # reset the index
+    # # reset the index
     # df = df[::-1].reset_index(drop=True)  # Reverse dataset if needed
     
     # Convert the date column to datetime
@@ -200,6 +197,15 @@ def load_preprocess_data(filepath, areaname, recovery_period=16, rolling_window=
     return df
 
 data = load_preprocess_data("../../data/processed/merged_nhs_covid_data.csv", areaname, recovery_period=21, rolling_window=7, end_date="2020-08-31")
+
+plt.plot(data["date"], data["new_deceased"])
+plt.title("New Deceased over time")
+plt.xlabel("Date")
+plt.ylabel("New Deceased")
+plt.xticks(rotation=45)
+plt.tight_layout()
+# plt.savefig("../../reports/figures/S(t)_over_time.pdf")
+plt.show()
 
 def prepare_tensors(data, device):
     """Prepare tensors for training."""
