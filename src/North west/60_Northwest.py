@@ -199,7 +199,9 @@ def load_preprocess_data(filepath, areaname, recovery_period=16, rolling_window=
     
     return df
 
-data = load_preprocess_data("../../data/processed/merged_data.csv", areaname, recovery_period=21, rolling_window=7, end_date="2020-08-31")
+data = load_preprocess_data("../../data/processed/merged_nhs_covid_data.csv", areaname, recovery_period=21, rolling_window=7, end_date="2020-08-31")
+
+data = pd.read_csv("../../data/processed/merged_nhs_covid_data.csv")
 
 plt.plot(data["date"], data["new_deceased"])
 plt.title("New Deceased over time")
