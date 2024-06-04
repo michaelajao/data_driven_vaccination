@@ -25,7 +25,7 @@ os.makedirs("../../reports/parameters", exist_ok=True)
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
 # Device setup for CUDA or CPU
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
 # Set random seed for reproducibility
 seed = 42
@@ -340,11 +340,11 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size, model, lambd
     S_total = N - E_total - Ia_total - Is_total - H_total - C_total - R_total - D_total
     
     # Constants based on the table provided
-    rho = 0.75  # Proportion of symptomatic infections
-    alpha = 1 / 5.2  # Incubation period (3.4 days)
-    d_s = 1 / 2.9  # Infectious period for symptomatic (2.9 days)
-    d_a = 1 / 6  # Infectious period for asymptomatic (6 days)
-    d_h = 1 / 7  # Hospitalization days (7 days)
+    rho = 0.80  # Proportion of symptomatic infections
+    alpha = 1 / 5  # Incubation period (5 days)
+    d_s = 1 / 4 # Infectious period for symptomatic (4 days)
+    d_a = 1 / 7  # Infectious period for asymptomatic (7 days)
+    d_h = 1 / 13.4  # Hospitalization days (13.4 days)
     
     # learned parameters
     beta = parameters.beta

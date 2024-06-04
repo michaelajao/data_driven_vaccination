@@ -6,7 +6,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 # runge-kutta method
 from scipy.integrate import solve_ivp
-from tqdm import tqdm
+from tqdm.autonotebook import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -167,9 +167,9 @@ t_data.requires_grad = True
 class ParamNet(nn.Module):
     def __init__(self, output_size=2, num_layers=3, hidden_neurons=20):
         super(ParamNet, self).__init__()
-        layers = [nn.Linear(1, hidden_neurons), nn.ReLU()]
+        layers = [nn.Linear(1, hidden_neurons), nn.Tanh()]
         for _ in range(num_layers - 1):
-            layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.ReLU()])
+            layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
         layers.append(nn.Linear(hidden_neurons, output_size))
         self.net = nn.Sequential(*layers)
 
@@ -178,9 +178,21 @@ class ParamNet(nn.Module):
 
     def get_params(self, t):
         raw_params = self.forward(t)
-        beta = torch.sigmoid(raw_params[:, 0]) * 0.9 + 0.1
-        gamma = torch.sigmoid(raw_params[:, 1]) * 0.09 + 0.01
+        beta = torch.sigmoid(raw_params[:, 0]) # Scale beta to [0.1, 1]
+        gamma = torch.sigmoid(raw_params[:, 1]) 
         return beta, gamma
+    
+    def init_xavier(self):
+        torch.manual_seed(self.retrain_seed)
+
+        def init_weights(m):
+            if isinstance(m, nn.Linear):
+                g = nn.init.calculate_gain("tanh")
+                nn.init.xavier_uniform_(m.weight, gain=g)
+                if m.bias is not None:
+                    m.bias.data.fill_(0.01)
+
+        self.apply(init_weights)
 
 
 class SIRNet(nn.Module):
@@ -195,7 +207,7 @@ class SIRNet(nn.Module):
         self.init_xavier()
 
     def forward(self, t):
-        return self.net(t)
+        return torch.sigmoid(self.net(t))
 
     def init_xavier(self):
         torch.manual_seed(self.retrain_seed)
@@ -205,7 +217,7 @@ class SIRNet(nn.Module):
                 g = nn.init.calculate_gain("tanh")
                 nn.init.xavier_uniform_(m.weight, gain=g)
                 if m.bias is not None:
-                    m.bias.data.fill_(0)
+                    m.bias.data.fill_(0.01)
 
         self.apply(init_weights)
 
@@ -231,6 +243,8 @@ def enhanced_sir_loss(SIR_tensor, model_output, beta_pred, gamma_pred, t_tensor,
     R_t = torch.autograd.grad(
         R_pred, t_tensor, torch.ones_like(R_pred), create_graph=True
     )[0]
+    
+    # predict the  
 
     # Calculate the theoretical derivatives based on the SIR model
     dSdt_pred, dIdt_pred, dRdt_pred = compute_sir_derivatives(
@@ -250,8 +264,12 @@ def enhanced_sir_loss(SIR_tensor, model_output, beta_pred, gamma_pred, t_tensor,
         + torch.mean((I_t - dIdt_pred) ** 2)
         + torch.mean((R_t - dRdt_pred) ** 2)
     )
+    
+    # parameter regularization loss
+    
+    
 
-    return fitting_loss + derivative_loss
+    return fitting_loss + derivative_loss 
 
 
 # Early stopping class
@@ -417,17 +435,17 @@ def plot_param_results_subplots(t_data, param_model, title):
 
 
 # Initialize the models
-param_model = ParamNet(output_size=2, num_layers=5, hidden_neurons=32).to(device)
-sir_model = SIRNet(num_layers=5, hidden_neurons=32).to(device)
+param_model = ParamNet(output_size=2, num_layers=1, hidden_neurons=5).to(device)
+sir_model = SIRNet(num_layers=3, hidden_neurons=20).to(device)
 
-# inspect the model using tensorboard
-writer.add_graph(param_model, t_data)
-writer.add_graph(sir_model, t_data)
-writer.close()
+# # inspect the model using tensorboard
+# writer.add_graph(param_model, t_data)
+# writer.add_graph(sir_model, t_data)
+# writer.close()
 
 # Train the models and collect losses
 losses = train_models(
-    param_model, sir_model, t_data, SIR_tensor, epochs=23000, lr=0.001, N=params["N"]
+    param_model, sir_model, t_data, SIR_tensor, epochs=20000, lr=0.0001, N=params["N"]
 )
 
 

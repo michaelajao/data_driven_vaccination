@@ -284,27 +284,26 @@ class StateNN(nn.Module):
 
     @property
     def beta(self):
-        return torch.sigmoid(self._beta) *  0.9 + 0.1
-
+        return torch.sigmoid(self._beta) 
     @property
     def omega(self):
-        return torch.sigmoid(self._omega) * 0.09 + 0.01
+        return torch.sigmoid(self._omega)
 
     @property
     def delta(self):
-        return torch.sigmoid(self._mu) * 0.09 + 0.01
+        return torch.sigmoid(self._mu)
     
     @property
     def gamma_c(self):
-        return torch.sigmoid(self._gamma_c) * 0.09 + 0.01
+        return torch.sigmoid(self._gamma_c)
     
     @property
     def delta_c(self):
-        return torch.sigmoid(self._delta_c) * 0.09 + 0.01
+        return torch.sigmoid(self._delta_c)
     
     @property
     def eta(self):
-        return torch.sigmoid(self._eta) * 0.09 + 0.01
+        return torch.sigmoid(self._eta)
     
 
     def init_xavier(self):
@@ -345,11 +344,11 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size, model, lambd
     S_total = N - E_total - Ia_total - Is_total - H_total - C_total - R_total - D_total
     
     # Constants based on the table provided
-    rho = 0.75  # Proportion of symptomatic infections
-    alpha = 1 / 5.2  # Incubation period (3.4 days)
-    d_s = 1 / 2.9  # Infectious period for symptomatic (2.9 days)
-    d_a = 1 / 6  # Infectious period for asymptomatic (6 days)
-    d_h = 1 / 7  # Hospitalization days (7 days)
+    rho = 0.80  # Proportion of symptomatic infections
+    alpha = 1 / 5  # Incubation period (5 days)
+    d_s = 1 / 4 # Infectious period for symptomatic (4 days)
+    d_a = 1 / 7  # Infectious period for asymptomatic (7 days)
+    d_h = 1 / 13.4  # Hospitalization days (13.4 days)
     
     # learned parameters
     beta = parameters.beta
@@ -423,13 +422,13 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size, model, lambd
         + (D_pred[0] - D0) ** 2
     )
     
-    # L2 regularization term
-    l2_reg = torch.tensor(0.).to(device)
-    for param in model.parameters():
-        l2_reg += torch.norm(param)
+    # # L2 regularization term
+    # l2_reg = torch.tensor(0.).to(device)
+    # for param in model.parameters():
+    #     l2_reg += torch.norm(param)
 
     # total loss
-    loss = data_loss + residual_loss + initial_loss + lambda_reg * l2_reg
+    loss = data_loss + residual_loss + initial_loss 
     
     return loss
 
@@ -472,13 +471,13 @@ model = StateNN(
     init_delta=0.01,
     init_eta=0.01,
     retrain_seed=seed,
-    num_layers=8,
-    hidden_neurons=32
+    num_layers=5,
+    hidden_neurons=20
 ).to(device)
             
 N = data["population"].iloc[0]
-optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-2)
-scheduler = StepLR(optimizer, step_size=10000, gamma=0.9)
+optimizer = optim.Adam(model.parameters(), lr=1e-4)
+scheduler = StepLR(optimizer, step_size=5000, gamma=0.9)
 earlystopping = EarlyStopping(patience=100, verbose=False)
 num_epochs = 100000
 
