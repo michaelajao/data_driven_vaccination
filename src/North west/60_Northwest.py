@@ -247,7 +247,7 @@ def split_and_scale_data(data, train_size, features, device):
 features = ["new_confirmed", "newAdmissions", "covidOccupiedMVBeds", "new_deceased", "recovered"]
 
 # set the train size in days
-train_size = 60
+train_size = 100
 
 tensor_data, scaler = split_and_scale_data(data, train_size, features, device)
 
@@ -313,7 +313,7 @@ class StateNN(nn.Module):
                 g = nn.init.calculate_gain("tanh")
                 nn.init.xavier_uniform_(m.weight, gain=g)
                 if m.bias is not None:
-                    m.bias.data.fill_(0.01)
+                    m.bias.data.fill_(0)
         self.apply(init_weights)
 
 
@@ -339,8 +339,8 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size, model, lambd
 
     
     # Compute the total number of exposed and infectious individuals
-    E_total = torch.zeros_like(Is_total)  # Initialize as a tensor of zeros
-    Ia_total = torch.zeros_like(Is_total)  # Initialize as a tensor of zeros
+    E_total = torch.zeros_like(Is_total)
+    Ia_total = torch.zeros_like(Is_total)
     S_total = N - E_total - Ia_total - Is_total - H_total - C_total - R_total - D_total
     
     # Constants based on the table provided
@@ -409,18 +409,18 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size, model, lambd
         + torch.mean((D_t - dDdt) ** 2)
     )
     
-    # Initial condition loss
-    S0, E0, Ia0, Is0, H0, C0, R0, D0 = S_total[0], E_total[0], Ia_total[0], Is_total[0], H_total[0], C_total[0], R_total[0], D_total[0]
-    initial_loss = (
-        (S_pred[0] - S0) ** 2
-        + (E_pred[0] - E0) ** 2
-        + (Ia_pred[0] - Ia0) ** 2
-        + (Is_pred[0] - Is0) ** 2
-        + (H_pred[0] - H0) ** 2
-        + (C_pred[0] - C0) ** 2
-        + (R_pred[0] - R0) ** 2
-        + (D_pred[0] - D0) ** 2
-    )
+    # # Initial condition loss
+    # S0, E0, Ia0, Is0, H0, C0, R0, D0 = S_total[0], E_total[0], Ia_total[0], Is_total[0], H_total[0], C_total[0], R_total[0], D_total[0]
+    # initial_loss = (
+    #     (S_pred[0] - S0) ** 2
+    #     + (E_pred[0] - E0) ** 2
+    #     + (Ia_pred[0] - Ia0) ** 2
+    #     + (Is_pred[0] - Is0) ** 2
+    #     + (H_pred[0] - H0) ** 2
+    #     + (C_pred[0] - C0) ** 2
+    #     + (R_pred[0] - R0) ** 2
+    #     + (D_pred[0] - D0) ** 2
+    # )
     
     # # L2 regularization term
     # l2_reg = torch.tensor(0.).to(device)
@@ -428,7 +428,7 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size, model, lambd
     #     l2_reg += torch.norm(param)
 
     # total loss
-    loss = data_loss + residual_loss + initial_loss 
+    loss = data_loss + residual_loss
     
     return loss
 
@@ -471,8 +471,8 @@ model = StateNN(
     init_delta=0.01,
     init_eta=0.01,
     retrain_seed=seed,
-    num_layers=5,
-    hidden_neurons=20
+    num_layers=3,
+    hidden_neurons=32
 ).to(device)
             
 N = data["population"].iloc[0]

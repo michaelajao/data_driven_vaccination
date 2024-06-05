@@ -10,8 +10,8 @@ from tqdm.autonotebook import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
 
-from torch.utils.tensorboard import SummaryWriter
-writer = SummaryWriter("../../reports/runs/time_varying_sir")
+# from torch.utils.tensorboard import SummaryWriter
+# writer = SummaryWriter("../../reports/runs/time_varying_sir")
 
 # Check PyTorch version and CUDA availability
 def check_pytorch():

@@ -62,7 +62,7 @@ plt.rcParams.update(
 )
 
 # Device setup for CUDA or CPU
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
 # Set random seed for reproducibility
 torch.manual_seed(42)
@@ -181,10 +181,10 @@ data = load_and_preprocess_data(
     start_date="2020-04-01",
 )
 
-train_data_start = "2020-05-01"
-train_data_end = "2020-12-31"
-val_data_start = "2021-01-01"
-val_data_end = "2021-04-30"
+train_data_start = "2021-01-01"
+train_data_end = "2021-12-31"
+val_data_start = "2022-01-01"
+val_data_end = "2022-04-30"
 
 t_mask = (data["date"] >= train_data_start) & (data["date"] <= train_data_end)
 train_data = data.loc[t_mask]
@@ -253,7 +253,7 @@ class EpiNet(nn.Module):
         
         
     def forward(self, t):
-            output = self.net(t)
+            output = torch.sigmoid(self.net(t))
             return output
 
     # def forward(self, t):
@@ -277,10 +277,10 @@ class BetaNet(nn.Module):
         self.retain_seed = 100
         torch.manual_seed(self.retain_seed)
 
-        layers = [nn.Linear(1, hidden_neurons), nn.ReLU()]
+        layers = [nn.Linear(1, hidden_neurons), nn.Tanh()]
 
         for _ in range(num_layers - 1):
-            layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.ReLU()])
+            layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
 
         layers.append(nn.Linear(hidden_neurons, 8))
         self.net = nn.Sequential(*layers)
@@ -292,14 +292,14 @@ class BetaNet(nn.Module):
     def get_params(self, t):
         raw_params = self.net(t)
         # Apply non-negative constraints to the parameters using sigmoid
-        beta = torch.sigmoid(raw_params[:, 0]) * 0.9 + 0.1
-        gamma = torch.sigmoid(raw_params[:, 1]) * 0.1 + 0.01
-        delta = torch.sigmoid(raw_params[:, 2]) * 0.01 + 0.001
-        rho = torch.sigmoid(raw_params[:, 3]) * 0.1 + 0.01
-        eta = torch.sigmoid(raw_params[:, 4]) * 0.1 + 0.01
-        kappa = torch.sigmoid(raw_params[:, 5]) * 0.1 + 0.01
-        mu = torch.sigmoid(raw_params[:, 6]) * 0.1 + 0.01
-        xi = torch.sigmoid(raw_params[:, 7]) * 0.01 + 0.001
+        beta = torch.sigmoid(raw_params[:, 0]) 
+        gamma = torch.sigmoid(raw_params[:, 1]) 
+        delta = torch.sigmoid(raw_params[:, 2])
+        rho = torch.sigmoid(raw_params[:, 3])
+        eta = torch.sigmoid(raw_params[:, 4])
+        kappa = torch.sigmoid(raw_params[:, 5])
+        mu = torch.sigmoid(raw_params[:, 6])
+        xi = torch.sigmoid(raw_params[:, 7])
         return torch.stack([beta, gamma, delta, rho, eta, kappa, mu, xi], dim=1)
     
 
@@ -341,7 +341,6 @@ def pinn_loss(tensor_data, parameters, model_output, t, N, device):
     dRdt = gamma_pred * I_pred + kappa_pred * H_pred + mu_pred * C_pred
     dDdt = delta_pred * I_pred + xi_pred * C_pred
     
-    
 
     data_loss = torch.mean((S - S_pred) ** 2 + (I - I_pred) ** 2 + (H - H_pred) ** 2 + (C - C_pred) ** 2 + (R - R_pred) ** 2 + (D - D_pred) ** 2)
     physics_loss = torch.mean((s_t - dSdt) ** 2 + (i_t - dIdt) ** 2 + (h_t - dHdt) ** 2 + (c_t - dCdt) ** 2 + (r_t - dRdt) ** 2 + (d_t - dDdt) ** 2)
@@ -375,7 +374,7 @@ class EarlyStopping:
             self.counter = 0
 
 model = EpiNet(num_layers=5, hidden_neurons=32, output_size=6).to(device)
-beta_net = BetaNet(num_layers=5, hidden_neurons=32).to(device)
+beta_net = BetaNet(num_layers=1, hidden_neurons=32).to(device)
 
 def train_model(
     model,
@@ -387,19 +386,19 @@ def train_model(
     num_epochs=1000,
     device=device,
     print_every=100,
-    weight_decay=1e-2,  # L2 regularization term
+    # weight_decay=1e-2,  # L2 regularization term
     verbose=True,
 ):
     # Define the optimizers with L2 regularization
-    model_optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
-    params_optimizer = optim.Adam(beta_net.parameters(), lr=lr, weight_decay=weight_decay)
+    model_optimizer = optim.Adam(model.parameters(), lr=lr)
+    params_optimizer = optim.Adam(beta_net.parameters(), lr=lr)
 
     # Define the learning rate scheduler
     model_scheduler = StepLR(model_optimizer, step_size=5000, gamma=0.9)
     params_scheduler = StepLR(params_optimizer, step_size=5000, gamma=0.9)
 
     # Initialize the early stopping object
-    early_stopping = EarlyStopping(patience=200, verbose=verbose)
+    early_stopping = EarlyStopping(patience=100, verbose=verbose)
 
     # Initialize the loss history
     loss_history = []
@@ -457,7 +456,7 @@ model_output, parameters, loss_history = train_model(
     num_epochs=50000,
     device=device,
     print_every=500,
-    weight_decay=1e-5,  # Adjust this value as needed
+    # weight_decay=1e-5, 
     verbose=False,
 )
 

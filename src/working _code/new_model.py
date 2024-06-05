@@ -186,26 +186,26 @@ def load_preprocess_data(
     # Convert the date column to datetime
     df["date"] = pd.to_datetime(df["date"])
 
-    # calculate the recovered column from data
-    df["recovered"] = df["cumulative_confirmed"].shift(recovery_period) - df[
-        "cumulative_deceased"
-    ].shift(recovery_period)
-    df["recovered"] = df["recovered"].fillna(0).clip(lower=0)
+    # # calculate the recovered column from data
+    # df["recovered"] = df["cumulative_confirmed"].shift(recovery_period) - df[
+    #     "cumulative_deceased"
+    # ].shift(recovery_period)
+    # df["recovered"] = df["recovered"].fillna(0).clip(lower=0)
 
     # select data up to the end_date
     if end_date:
         df = df[df["date"] <= end_date]
 
-    # calculate the susceptible column from data
-    df["susceptible"] = (
-        df["population"]
-        - df["cumulative_confirmed"]
-        - df["cumulative_deceased"]
-        - df["recovered"]
-    )
+    # # calculate the susceptible column from data
+    # df["susceptible"] = (
+    #     df["population"]
+    #     - df["cumulative_confirmed"]
+    #     - df["cumulative_deceased"]
+    #     - df["recovered"]
+    # )
 
     cols_to_smooth = [
-        "susceptible",
+        # "susceptible",
         "cumulative_confirmed",
         "cumulative_deceased",
         "hospitalCases",
@@ -213,8 +213,8 @@ def load_preprocess_data(
         "new_deceased",
         "new_confirmed",
         "newAdmissions",
-        "cumAdmissions",
-        "recovered",
+        # "cumAdmissions",
+        # "recovered",
     ]
     for col in cols_to_smooth:
         df[col] = df[col].rolling(window=rolling_window, min_periods=1).mean().fillna(0)
@@ -255,16 +255,13 @@ plt.show()
 
 def prepare_tensors(data, device):
     """Prepare tensors for training."""
+    S = tensor(data["susceptible"].values, dtype=torch.float32).view(-1, 1).to(device)
     I = tensor(data["new_confirmed"].values, dtype=torch.float32).view(-1, 1).to(device)
     H = tensor(data["newAdmissions"].values, dtype=torch.float32).view(-1, 1).to(device)
-    C = (
-        tensor(data["covidOccupiedMVBeds"].values, dtype=torch.float32)
-        .view(-1, 1)
-        .to(device)
-    )
+    C = tensor(data["covidOccupiedMVBeds"].values, dtype=torch.float32).view(-1, 1).to(device)
     D = tensor(data["new_deceased"].values, dtype=torch.float32).view(-1, 1).to(device)
     R = tensor(data["recovered"].values, dtype=torch.float32).view(-1, 1).to(device)
-    return I, H, C, D, R
+    return S, I, H, C, D, R
 
 
 def scale_data(data, features, device):
@@ -282,11 +279,12 @@ def scale_data(data, features, device):
 
 
 features = [
+    # "susceptible",
     "new_confirmed",
     "newAdmissions",
     "covidOccupiedMVBeds",
     "new_deceased",
-    "recovered",
+    # "recovered",
 ]
 
 # Split and scale the data
@@ -351,23 +349,24 @@ class BetaNet(nn.Module):
 
     # time varying parameters estimation
     def get_params(self, t):
-        beta, omega, mu, gamma_c, delta_c, eta = torch.split(self.net(t), 1, dim=1)
-        beta = torch.sigmoid(beta)
-        omega = torch.sigmoid(omega)
-        mu = torch.sigmoid(mu)
-        gamma_c = torch.sigmoid(gamma_c)
-        delta_c = torch.sigmoid(delta_c)
-        eta = torch.sigmoid(eta)
-
+        raw_params = self.net(t)
+        
+        beta = torch.sigmoid(raw_params[:, 0])
+        omega = torch.sigmoid(raw_params[:, 1])
+        mu = torch.sigmoid(raw_params[:, 2])
+        gamma_c = torch.sigmoid(raw_params[:, 3])
+        delta_c = torch.sigmoid(raw_params[:, 4])
+        eta = torch.sigmoid(raw_params[:, 5])
+        
         return beta, omega, mu, gamma_c, delta_c, eta
-
+    
     def init_xavier(self):
         def init_weights(layer):
             if isinstance(layer, nn.Linear):
                 g = nn.init.calculate_gain("tanh")
                 nn.init.xavier_normal_(layer.weight, gain=g)
                 if layer.bias is not None:
-                    layer.bias.data.fill_(0.01)
+                    layer.bias.data.fill_(0)
 
         # Apply the weight initialization to the network
         self.net.apply(init_weights)
@@ -377,32 +376,19 @@ def einn_loss(model_output, tensor_data, parameters, t, model, lambda_reg=1e-4):
     """Compute the loss function for the EINN model with L2 regularization."""
 
     # Split the model output into the different compartments
-    S_pred, E_pred, Ia_pred, Is_pred, H_pred, C_pred, D_pred, R_pred = torch.split(
-        model_output, 1, dim=1
-    )
+    S_pred, E_pred, Ia_pred, Is_pred, H_pred, C_pred, D_pred, R_pred = model_output[:, 0], model_output[:, 1], model_output[:, 2], model_output[:, 3], model_output[:, 4], model_output[:, 5], model_output[:, 6], model_output[:, 7]
 
     # Normalize the data
     N = 1
 
-    Is_data, H_data, C_data, D_data, R_data = (
-        tensor_data[:, 0].view(-1, 1),
-        tensor_data[:, 1].view(-1, 1),
-        tensor_data[:, 2].view(-1, 1),
-        tensor_data[:, 3].view(-1, 1),
-        tensor_data[:, 4].view(-1, 1),
-    )
-
-    # initial data for E_data and Ia_data should be zero
-    E_data = torch.zeros_like(Is_data)
-    Ia_data = torch.zeros_like(Is_data)
-    S_data = N - Ia_data - Is_data - H_data - C_data - R_data - D_data
+    Is_data, H_data, C_data, D_data = tensor_data[:, 0], tensor_data[:, 1], tensor_data[:, 2], tensor_data[:, 3]
 
     # Constants based on the table provided
     rho = 0.80  # Proportion of symptomatic infections
     alpha = 1 / 5  # Incubation period (5 days)
-    d_s = 1 / 4  # Infectious period for symptomatic (4 days)
-    d_a = 1 / 7  # Infectious period for asymptomatic (7 days)
-    d_h = 1 / 13.4  # Hospitalization days (13.4 days)
+    ds = 1 / 4  # Infectious period for symptomatic (4 days)
+    da = 1 / 7  # Infectious period for asymptomatic (7 days)
+    dH = 1 / 13.4  # Hospitalization days (13.4 days)
 
     # learned parameters
     beta, omega, mu, gamma_c, delta_c, eta = parameters
@@ -417,32 +403,29 @@ def einn_loss(model_output, tensor_data, parameters, t, model, lambda_reg=1e-4):
     R_t = grad(R_pred, t, grad_outputs=torch.ones_like(R_pred), create_graph=True)[0]
     D_t = grad(D_pred, t, grad_outputs=torch.ones_like(D_pred), create_graph=True)[0]
 
-    # Compute the differential equations
-    dSdt = -beta * (Is_data + Ia_data) / N * S_data + eta * R_data
-    dEdt = beta * (Is_data + Ia_data) / N * S_data - alpha * E_data
-    dIsdt = alpha * rho * E_data - d_s * Is_data
-    dIadt = alpha * (1 - rho) * E_data - d_a * Ia_data
-    dHdt = d_s * omega * Is_data - d_h * H_data - mu * H_data
-    dCdt = d_h * (1 - omega) * H_data - gamma_c * C_data - delta_c * C_data
-    dRdt = (
-        d_s * (1 - omega) * Is_data
-        + d_a * Ia_data
-        + d_h * (1 - mu) * H_data
-        + gamma_c * C_data
-        - eta * R_data
-    )
-    dDdt = mu * H_data + delta_c * C_data
 
-    # Compute the loss function
+    # Compute the differential equations
+    dSdt = -beta * (Is_pred + Ia_pred) / N * S_pred + eta * R_pred
+    dEdt = beta * (Is_pred + Ia_pred) / N * S_pred - alpha * E_pred
+    dIsdt = alpha * rho * E_pred - ds * Is_pred
+    dIadt = alpha * (1 - rho) * E_pred - da * Ia_pred
+    dHdt = ds * omega * Is_pred - dH * H_pred - mu * H_pred
+    dCdt = dH * (1 - omega) * H_pred - gamma_c * C_pred - delta_c * C_pred
+    dRdt = (
+        ds * (1 - omega) * Is_pred
+        + da * Ia_pred
+        + dH * (1 - mu) * H_pred
+        + gamma_c * C_pred
+        - eta * R_pred
+    )
+    dDdt = mu * H_pred + delta_c * C_pred
+
+# Compute the loss function
     # data loss
     data_loss = (
-        torch.mean((S_pred - S_data) ** 2)
-        + torch.mean((E_pred - E_data) ** 2)
-        + torch.mean((Ia_pred - Ia_data) ** 2)
-        + torch.mean((Is_pred - Is_data) ** 2)
+        torch.mean((Is_pred - Is_data) ** 2)
         + torch.mean((H_pred - H_data) ** 2)
         + torch.mean((C_pred - C_data) ** 2)
-        + torch.mean((R_pred - R_data) ** 2)
         + torch.mean((D_pred - D_data) ** 2)
     )
 
@@ -457,38 +440,9 @@ def einn_loss(model_output, tensor_data, parameters, t, model, lambda_reg=1e-4):
         + torch.mean((R_t - dRdt) ** 2)
         + torch.mean((D_t - dDdt) ** 2)
     )
-    
-    # parameter loss
-    beta_loss = torch.mean(beta ** 2)
-    omega_loss = torch.mean(omega ** 2)
-    mu_loss = torch.mean(mu ** 2)
-    gamma_c_loss = torch.mean(gamma_c ** 2)
-    delta_c_loss = torch.mean(delta_c ** 2)
-    eta_loss = torch.mean(eta ** 2)
-    
-    param_loss = beta_loss + omega_loss + mu_loss + gamma_c_loss + delta_c_loss + eta_loss
-
-    # # Initial condition loss
-    # S0, E0, Ia0, Is0, H0, C0, R0, D0 = S_data[0], E_data[0], Ia_data[0], Is_data[0], H_data[0], C_data[0], R_data[0], D_data[0]
-    # initial_loss = (
-    #     (S_pred[0] - S0) ** 2
-    #     + (E_pred[0] - E0) ** 2
-    #     + (Ia_pred[0] - Ia0) ** 2
-    #     + (Is_pred[0] - Is0) ** 2
-    #     + (H_pred[0] - H0) ** 2
-    #     + (C_pred[0] - C0) ** 2
-    #     + (R_pred[0] - R0) ** 2
-    #     + (D_pred[0] - D0) ** 2
-    # )
-
-    # # L2 regularization term
-    # l2_reg = torch.tensor(0.).to(device)
-    # for param in model.parameters():
-    #     l2_reg += torch.norm(param)
 
     # total loss
-    loss = data_loss + residual_loss + param_loss
-
+    loss = data_loss + residual_loss
     return loss
 
 
@@ -520,6 +474,7 @@ def einn_loss(model_output, tensor_data, parameters, t, model, lambda_reg=1e-4):
 #             self.best_score = score
 #             self.save_checkpoint(val_loss, model)
 #             self.counter = 0
+
 
 #     def save_checkpoint(self, val_loss, model):
 #         if self.verbose:
@@ -554,6 +509,7 @@ class EarlyStopping:
             self.best_score = score
             self.counter = 0
 
+
 # Initialize the model and optimizer
 model = EpiNet(num_layers=5, hidden_neurons=20, output_size=8).to(device)
 beta_net = BetaNet(num_layers=1, hidden_neurons=5).to(device)
@@ -561,7 +517,7 @@ beta_net = BetaNet(num_layers=1, hidden_neurons=5).to(device)
 # population
 N = data["population"].iloc[0]
 
-# Define the optimizer and scheduler
+# # Define the optimizer and scheduler
 # optimizer = optim.Adam(list(model.parameters()) + list(beta_net.parameters()), lr=1e-4)
 model_optimizer = optim.Adam(model.parameters(), lr=1e-4)
 params_optimizer = optim.Adam(model.parameters(), lr=1e-4)
@@ -574,12 +530,7 @@ params_scheduler = StepLR(params_optimizer, step_size=5000, gamma=0.9)
 earlystopping = EarlyStopping(patience=100, verbose=False)
 num_epochs = 100000
 
-t = (
-    torch.tensor(np.arange(1, len(data) + 1), dtype=torch.float32)
-    .view(-1, 1)
-    .to(device)
-    .requires_grad_(True)
-)
+t = torch.linspace(0, len(data_scaled) - 1, len(data_scaled)).view(-1, 1).to(device).requires_grad_(True)
 
 # Initialize the loss history
 loss_history = []
@@ -619,13 +570,13 @@ loss_history = []
 
 #         if (epoch + 1) % 500 == 0 or epoch == 0:
 #             print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {loss.item():.6f}")
-#             beta, omega, mu, gamma_c, delta_c, eta = parameters
-#             print(f"beta (first 5 values): {beta[:5].cpu().detach().numpy().flatten()}")
-#             print(f"omega (first 5 values): {omega[:5].cpu().detach().numpy().flatten()}")
-#             print(f"mu (first 5 values): {mu[:5].cpu().detach().numpy().flatten()}")
-#             print(f"gamma_c (first 5 values): {gamma_c[:5].cpu().detach().numpy().flatten()}")
-#             print(f"delta_c (first 5 values): {delta_c[:5].cpu().detach().numpy().flatten()}")
-#             print(f"eta (first 5 values): {eta[:5].cpu().detach().numpy().flatten()}")
+#             # beta, omega, mu, gamma_c, delta_c, eta = parameters
+#             # print(f"beta (first 5 values): {beta[:5].cpu().detach().numpy().flatten()}")
+#             # print(f"omega (first 5 values): {omega[:5].cpu().detach().numpy().flatten()}")
+#             # print(f"mu (first 5 values): {mu[:5].cpu().detach().numpy().flatten()}")
+#             # print(f"gamma_c (first 5 values): {gamma_c[:5].cpu().detach().numpy().flatten()}")
+#             # print(f"delta_c (first 5 values): {delta_c[:5].cpu().detach().numpy().flatten()}")
+#             # print(f"eta (first 5 values): {eta[:5].cpu().detach().numpy().flatten()}")
 
 #     return model, beta_net, loss_history
 
@@ -747,7 +698,6 @@ model, beta_net, loss_history = train_model(
 )
 
 
-
 # Plot the loss history
 plot_loss(
     loss_history,
@@ -839,14 +789,15 @@ plot_predictions(
 def plot_parameters(t, beta_net, filename):
     with torch.no_grad():
         beta, omega, mu, gamma_c, delta_c, eta = beta_net.get_params(t)
-        
+
     beta = beta.cpu().detach().numpy().flatten()
     omega = omega.cpu().detach().numpy().flatten()
     mu = mu.cpu().detach().numpy().flatten()
     gamma_c = gamma_c.cpu().detach().numpy().flatten()
     delta_c = delta_c.cpu().detach().numpy().flatten()
     eta = eta.cpu().detach().numpy().flatten()
-    
+
+    t_np = t.cpu().detach().numpy().flatten()
 
     # plot the parameters
 
@@ -885,21 +836,6 @@ def plot_parameters(t, beta_net, filename):
     plt.tight_layout()
     plt.savefig(filename, format="pdf", dpi=600)
     plt.show()
-    print("Initial Parameters:")
-    print("beta:", beta[:5])
-    print("omega:", omega[:5])
-    print("mu:", mu[:5])
-    print("gamma_c:", gamma_c[:5])
-    print("delta_c:", delta_c[:5])
-    print("eta:", eta[:5])
-
-    print("Final Parameters:")
-    print("beta:", beta[-5:])
-    print("omega:", omega[-5:])
-    print("mu:", mu[-5:])
-    print("gamma_c:", gamma_c[-5:])
-    print("delta_c:", delta_c[-5:])
-    print("eta:", eta[-5:])
 
 
 # Adjusted parameter scaling and plot functions
