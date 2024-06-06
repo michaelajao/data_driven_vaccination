@@ -303,8 +303,9 @@ class EarlyStopping:
 
 # Training function
 def train_models(param_model, sir_model, t_data, SIR_tensor, epochs, lr, N):
-    param_optimizer = optim.Adam(param_model.parameters(), lr=lr)
-    sir_optimizer = optim.Adam(sir_model.parameters(), lr=lr)
+    optimiser = optim.Adam(list(param_model.parameters()) + list(sir_model.parameters()), lr=lr)
+    # param_optimizer = optim.Adam(param_model.parameters(), lr=lr)
+    # sir_optimizer = optim.Adam(sir_model.parameters(), lr=lr)
     early_stopping = EarlyStopping(patience=100, verbose=False)
 
     losses = []
@@ -323,11 +324,12 @@ def train_models(param_model, sir_model, t_data, SIR_tensor, epochs, lr, N):
         )
 
         # Backward pass: Optimize both models
-        param_optimizer.zero_grad()
-        sir_optimizer.zero_grad()
+        optimiser.zero_grad()
+        # param_optimizer.zero_grad()
+        # sir_optimizer.zero_grad()
         loss.backward()
-        param_optimizer.step()
-        sir_optimizer.step()
+        # param_optimizer.step()
+        # sir_optimizer.step()
 
         # append the loss
         losses.append(loss.item())
@@ -342,21 +344,23 @@ def train_models(param_model, sir_model, t_data, SIR_tensor, epochs, lr, N):
         # Check for early stopping
         if early_stopping(loss):
             print("Early stopping triggered.")
+            
+        optimiser.step()
 
-            # save the models
-            torch.save(
-                {
-                    "epoch": epoch,
-                    "param_model_state_dict": param_model.state_dict(),
-                    "sir_model_state_dict": sir_model.state_dict(),
-                    "param_optimizer_state_dict": param_optimizer.state_dict(),
-                    "sir_optimizer_state_dict": sir_optimizer.state_dict(),
-                    "loss": loss,
-                },
-                "../../models/time_varying_sir_checkpoint.pth",
-            )
-            print("Model saved")
-            break
+            # # save the models
+            # torch.save(
+            #     {
+            #         "epoch": epoch,
+            #         "param_model_state_dict": param_model.state_dict(),
+            #         "sir_model_state_dict": sir_model.state_dict(),
+            #         # "param_optimizer_state_dict": param_optimizer.state_dict(),
+            #         # "sir_optimizer_state_dict": sir_optimizer.state_dict(),
+            #         "loss": loss,
+            #     },
+            #     "../../models/time_varying_sir_checkpoint.pth",
+            # )
+            # print("Model saved")
+            # break
 
     return losses
 

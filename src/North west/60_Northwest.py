@@ -339,9 +339,9 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size, model, lambd
 
     
     # Compute the total number of exposed and infectious individuals
-    E_total = torch.zeros_like(Is_total)
-    Ia_total = torch.zeros_like(Is_total)
-    S_total = N - E_total - Ia_total - Is_total - H_total - C_total - R_total - D_total
+    # E_total = torch.zeros_like(Is_total)
+    # Ia_total = torch.zeros_like(Is_total)
+    S_total = N - Is_total - H_total - C_total - R_total - D_total
     
     # Constants based on the table provided
     rho = 0.80  # Proportion of symptomatic infections
@@ -369,14 +369,16 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size, model, lambd
     D_t = grad(D_pred, t, grad_outputs=torch.ones_like(D_pred), create_graph=True)[0]
     
     # Compute the differential equations
-    dSdt = -beta * (Is_total + Ia_total) / N * S_total + eta * R_total
-    dEdt = beta * (Is_total + Ia_total) / N * S_total - alpha * E_total
-    dIsdt = alpha * rho * E_total - d_s * Is_total
-    dIadt = alpha * (1 - rho) * E_total - d_a * Ia_total
-    dHdt = d_s * omega * Is_total - d_h * H_total - mu * H_total
-    dCdt = d_h * (1 - omega) * H_total - gamma_c * C_total - delta_c * C_total
-    dRdt = d_s * (1 - omega) * Is_total + d_a * Ia_total + d_h * (1 - mu) * H_total + gamma_c * C_total - eta * R_total
-    dDdt = mu * H_total + delta_c * C_total
+    dSdt = -beta * (Is_pred + Ia_pred) / N + eta * R_pred
+    dEdt = beta * (Is_pred + Ia_pred) / N - alpha * E_pred
+    dIsdt = alpha * rho * E_pred - d_s * Is_pred
+    dIadt = alpha * (1 - rho) * E_pred - d_a * Ia_pred
+    dHdt = d_s * omega * Is_pred - d_h * H_pred - mu * H_pred
+    dCdt = d_h * (1 - omega) * H_pred - gamma_c * C_pred - delta_c * C_pred
+    dRdt = d_s * (1 - omega) * Is_pred + d_a * Ia_pred + d_h * (1 - mu) * H_pred + gamma_c * C_pred - eta * R_pred
+    dDdt = mu * H_pred + delta_c * C_pred
+    
+    
     
     # Randomly shuffle the indices
     if train_size is not None:
@@ -388,9 +390,9 @@ def einn_loss(model_output, tensor_data, parameters, t, train_size, model, lambd
     # data loss
     data_loss = (
         torch.mean((S_pred[index] - S_total[index]) ** 2)
-        + torch.mean((E_pred[index] - E_total[index]) ** 2)
+        # + torch.mean((E_pred[index] - E_total[index]) ** 2)
         + torch.mean((Is_pred[index] - Is_total[index]) ** 2)
-        + torch.mean((Ia_pred[index] - Ia_total[index]) ** 2)
+        # + torch.mean((Ia_pred[index] - Ia_total[index]) ** 2)
         + torch.mean((H_pred[index] - H_total[index]) ** 2)
         + torch.mean((C_pred[index] - C_total[index]) ** 2)
         + torch.mean((D_pred[index] - D_total[index]) ** 2)

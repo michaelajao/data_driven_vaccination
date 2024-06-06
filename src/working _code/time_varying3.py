@@ -181,7 +181,7 @@ data = load_and_preprocess_data(
     start_date="2020-04-01",
 )
 
-train_data_start = "2021-01-01"
+train_data_start = "2020-05-01"
 train_data_end = "2021-12-31"
 val_data_start = "2022-01-01"
 val_data_end = "2022-04-30"
@@ -284,13 +284,13 @@ class BetaNet(nn.Module):
 
         layers.append(nn.Linear(hidden_neurons, 8))
         self.net = nn.Sequential(*layers)
-        # self.init_xavier()
-        
+        self.init_xavier()
+
     def forward(self, t):
         return self.net(t)
 
     def get_params(self, t):
-        raw_params = self.net(t)
+        raw_params = self.forward(t)
         # Apply non-negative constraints to the parameters using sigmoid
         beta = torch.sigmoid(raw_params[:, 0]) 
         gamma = torch.sigmoid(raw_params[:, 1]) 
@@ -301,6 +301,16 @@ class BetaNet(nn.Module):
         mu = torch.sigmoid(raw_params[:, 6])
         xi = torch.sigmoid(raw_params[:, 7])
         return torch.stack([beta, gamma, delta, rho, eta, kappa, mu, xi], dim=1)
+
+    def init_xavier(self):
+        def init_weights(layer):
+            if isinstance(layer, nn.Linear):
+                g = nn.init.calculate_gain("tanh")
+                nn.init.xavier_normal_(layer.weight, gain=g)
+                if layer.bias is not None:
+                    layer.bias.data.fill_(0)
+        self.net.apply(init_weights)
+
     
 
     # def init_xavier(self):
@@ -309,7 +319,7 @@ class BetaNet(nn.Module):
     #             g = nn.init.calculate_gain("tanh")
     #             nn.init.xavier_normal_(layer.weight, gain=g)
     #             if layer.bias is not None:
-    #                 layer.bias.data.fill_(0.01)
+    #                 layer.bias.data.fill_(0.01)``
 
     #     self.net.apply(init_weights)
 
@@ -318,11 +328,11 @@ class BetaNet(nn.Module):
 def pinn_loss(tensor_data, parameters, model_output, t, N, device):
     S, I, H, C, R, D = tensor_data.unbind(1)
 
-    beta_pred, gamma_pred, delta_pred, rho_pred, eta_pred, kappa_pred, mu_pred, xi_pred = parameters.unbind(1)
+    beta_pred, gamma_pred, delta_pred, rho_pred, eta_pred, kappa_pred, mu_pred, xi_pred = parameters[:, 0], parameters[:, 1], parameters[:, 2], parameters[:, 3], parameters[:, 4], parameters[:, 5], parameters[:, 6], parameters[:, 7]
 
     N = N / N
 
-    S_pred, I_pred, H_pred, C_pred, R_pred, D_pred = model_output.unbind(1)
+    S_pred, I_pred, H_pred, C_pred, R_pred, D_pred = model_output[:, 0], model_output[:, 1], model_output[:, 2], model_output[:, 3], model_output[:, 4], model_output[:, 5]
     
     
     # Compute the gradients
@@ -386,16 +396,18 @@ def train_model(
     num_epochs=1000,
     device=device,
     print_every=100,
-    # weight_decay=1e-2,  # L2 regularization term
     verbose=True,
 ):
     # Define the optimizers with L2 regularization
-    model_optimizer = optim.Adam(model.parameters(), lr=lr)
-    params_optimizer = optim.Adam(beta_net.parameters(), lr=lr)
+    optimizer =optim.AdamW(list(model.parameters()) + list(beta_net.parameters()), lr=lr, weight_decay=1e-2)
+    
+    # model_optimizer = optim.Adam(model.parameters(), lr=lr)
+    # params_optimizer = optim.Adam(beta_net.parameters(), lr=lr)
 
     # Define the learning rate scheduler
-    model_scheduler = StepLR(model_optimizer, step_size=5000, gamma=0.9)
-    params_scheduler = StepLR(params_optimizer, step_size=5000, gamma=0.9)
+    scheduler = StepLR(optimizer, step_size=5000, gamma=0.9)
+    # model_scheduler = StepLR(model_optimizer, step_size=5000, gamma=0.9)
+    # params_scheduler = StepLR(params_optimizer, step_size=5000, gamma=0.9)
 
     # Initialize the early stopping object
     early_stopping = EarlyStopping(patience=100, verbose=verbose)
@@ -405,8 +417,12 @@ def train_model(
 
     # Train the model
     for epoch in tqdm(range(num_epochs)):
-        model_optimizer.zero_grad()
-        params_optimizer.zero_grad()
+        model.train()
+        beta_net.train()
+        
+        optimizer.zero_grad()
+        # model_optimizer.zero_grad()
+        # params_optimizer.zero_grad()
 
         # Forward pass to compute the predicted values on the training data
         model_output = model(t_train)
@@ -420,32 +436,36 @@ def train_model(
         # Backward pass
         loss.backward()
 
-        # Update the parameters
-        model_optimizer.step()
-        params_optimizer.step()
+        # # Update the parameters
+        # model_optimizer.step()
+        # params_optimizer.step()
+        optimizer.step()
 
         # Append the loss to the loss history
         loss_history.append(loss.item())
 
-        # Print the loss every `print_every` epochs without using the `verbose` flag
+        # Print the loss every `print_every` epochs
         if (epoch + 1) % print_every == 0 or epoch == 0:
-            print(f"Epoch [{epoch + 1}/{num_epochs}] - Loss: {loss.item():.6f}")
+            if verbose:
+                print(f"Epoch [{epoch + 1}/{num_epochs}] - Loss: {loss.item():.6f}")
 
-        # Step the learning rate scheduler
-        model_scheduler.step()
-        params_scheduler.step()
-
+        # # Step the learning rate scheduler
+        # model_scheduler.step()
+        # params_scheduler.step()
+        scheduler.step()
+        
         # Check for early stopping
         early_stopping(loss.item())
         if early_stopping.early_stop:
-            print("Early stopping")
+            if verbose:
+                print("Early stopping")
             break
 
     return model_output, parameters, loss_history
 
+
 N = data["population"].values[0]
 
-# Train the model with 100 data points
 model_output, parameters, loss_history = train_model(
     model,
     beta_net,
@@ -453,11 +473,10 @@ model_output, parameters, loss_history = train_model(
     t_train,
     N,
     lr=1e-4,
-    num_epochs=50000,
+    num_epochs=20000,
     device=device,
     print_every=500,
-    # weight_decay=1e-5, 
-    verbose=False,
+    verbose=True,
 )
 
 # Plot the loss history in base 10
@@ -503,6 +522,62 @@ def plot_training_results(t_train, actual_data, model_output):
     plt.show()
 
 plot_training_results(t_train, I_train, model_output)
+
+# Predict parameters and plot them
+t_train_np = t_train.cpu().detach().numpy().flatten()
+beta_values, gamma_values, delta_values, rho_values, eta_values, kappa_values, mu_values, xi_values = parameters.cpu().detach().numpy().T
+
+fig, axs = plt.subplots(4, 2, figsize=(12, 12))
+axs[0, 0].plot(t_train_np, beta_values, label="β")
+axs[0, 0].set_title("β")
+axs[0, 0].set_xlabel("Days since start")
+axs[0, 0].set_ylabel("Value")
+axs[0, 0].legend()
+
+axs[0, 1].plot(t_train_np, gamma_values, label="γ")
+axs[0, 1].set_title("γ")
+axs[0, 1].set_xlabel("Days since start")
+axs[0, 1].set_ylabel("Value")
+axs[0, 1].legend()
+
+axs[1, 0].plot(t_train_np, delta_values, label="δ")
+axs[1, 0].set_title("δ")
+axs[1, 0].set_xlabel("Days since start")
+axs[1, 0].set_ylabel("Value")
+axs[1, 0].legend()
+
+axs[1, 1].plot(t_train_np, rho_values, label="ρ")
+axs[1, 1].set_title("ρ")
+axs[1, 1].set_xlabel("Days since start")
+axs[1, 1].set_ylabel("Value")
+axs[1, 1].legend()
+
+axs[2, 0].plot(t_train_np, eta_values, label="η")
+axs[2, 0].set_title("η")
+axs[2, 0].set_xlabel("Days since start")
+axs[2, 0].set_ylabel("Value")
+axs[2, 0].legend()
+
+axs[2, 1].plot(t_train_np, kappa_values, label="κ")
+axs[2, 1].set_title("κ")
+axs[2, 1].set_xlabel("Days since start")
+axs[2, 1].set_ylabel("Value")
+axs[2, 1].legend()
+
+axs[3, 0].plot(t_train_np, mu_values, label="μ")
+axs[3, 0].set_title("μ")
+axs[3, 0].set_xlabel("Days since start")
+axs[3, 0].set_ylabel("Value")
+axs[3, 0].legend()
+
+axs[3, 1].plot(t_train_np, xi_values, label="ξ")
+axs[3, 1].set_title("ξ")
+axs[3, 1].set_xlabel("Days since start")
+axs[3, 1].set_ylabel("Value")
+axs[3, 1].legend()
+
+plt.tight_layout()
+plt.show()
 
 def plot_model_output(t_train, model_output):
     t_train_np = t_train.cpu().detach().numpy().flatten()
