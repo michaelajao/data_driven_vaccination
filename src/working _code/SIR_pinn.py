@@ -233,7 +233,7 @@ def enhanced_sir_loss(SIR_tensor, model_output, beta_pred, gamma_pred, t_tensor,
     
     # fitting_loss = torch.mean((S_actual - S_pred) ** 2) + torch.mean((I_actual - I_pred) ** 2) + torch.mean((D_actual - D_pred) ** 2)
 
-    fitting_loss = torch.mean((SIR_tensor[:, 0] - I_pred) ** 2) + torch.mean((SIR_tensor[:, 1] - D_pred) ** 2) + torch.mean((I_0 - I_pred[0]) ** 2) + torch.mean((R_0 - R_pred[0]) ** 2) + torch.mean((D_0 - D_pred[0]) ** 2) + torch.mean((S_0 - S_pred[0]) ** 2)
+    fitting_loss = torch.mean((SIR_tensor[:, 0] - I_pred) ** 2) + torch.mean((SIR_tensor[:, 1] - D_pred) ** 2) + torch.mean((S_0 - S_pred[0]) ** 2) + torch.mean((E_0 - E_pred[0]) ** 2) + torch.mean((R_0 - R_pred[0]) ** 2) 
     
     derivative_loss = torch.mean((S_t - dSdt_pred) ** 2) + torch.mean((E_t - dEdt_pred) ** 2) + torch.mean((I_t - dIdt_pred) ** 2) + torch.mean((R_t - dRdt_pred) ** 2) + torch.mean((D_t - dDdt_pred) ** 2)
     
@@ -339,12 +339,12 @@ def plot_param_results_subplots(t_data, param_model, title, N, model_output=None
     axs[0].set_xlabel("Days")
     axs[0].set_ylabel("Rate")
     axs[0].legend()
-
+    
     axs[1].plot(dates, gamma_pred, label="Gamma", color="orange")
     axs[1].set_xlabel("Days")
     axs[1].set_ylabel("Rate")
     axs[1].legend()
-
+    
     plt.tight_layout()
     plt.xticks(rotation=45)
     plt.show()
@@ -405,7 +405,7 @@ def plot_E_pred(t, model, title):
     plt.show()
 
 # Initialize the models
-param_model = ParamNet(output_size=2, num_layers=3, hidden_neurons=20).to(device)
+param_model = ParamNet(output_size=2, num_layers=1, hidden_neurons=20).to(device)
 sir_model = SIRNet(num_layers=4, hidden_neurons=20).to(device)
 
 # Train the models and collect losses
