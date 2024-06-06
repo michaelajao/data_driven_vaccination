@@ -182,9 +182,9 @@ data = load_and_preprocess_data(
 )
 
 train_data_start = "2020-05-01"
-train_data_end = "2021-12-31"
-val_data_start = "2022-01-01"
-val_data_end = "2022-04-30"
+train_data_end = "2020-10-31"
+val_data_start = "2020-11-01"
+val_data_end = "2020-12-31"
 
 t_mask = (data["date"] >= train_data_start) & (data["date"] <= train_data_end)
 train_data = data.loc[t_mask]
