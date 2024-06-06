@@ -125,13 +125,7 @@ def get_region_name_from_filepath(filepath):
     base = os.path.basename(filepath)
     return os.path.splitext(base)[0]
 
-df = load_and_preprocess_data("../../data/processed/england_data.csv")
-
-# plot recovered cases
-plt.plot(df["date"], df["daily_confirmed"])
-plt.title("Daily Confirmed Cases")
-plt.xlabel("Date")
-
+df = load_and_preprocess_data("../../data/processed/england_data.csv", start_date="2021-12-01", end_date="2022-08-31")
 
 # start_date = "2021-01-01"
 # end_date = "2021-08-31"
@@ -165,9 +159,9 @@ class ParamNet(nn.Module):
 
     def get_params(self, t):
         raw_params = self.forward(t)
-        beta = torch.sigmoid(raw_params[:, 0]) * 0.5  # Adjusted scaling
-        delta = torch.sigmoid(raw_params[:, 1]) * 0.1  # Adjusted scaling
-        return beta, delta
+        beta = torch.sigmoid(raw_params[:, 0]) * 0.5
+        gamma = torch.sigmoid(raw_params[:, 1]) * 0.15
+        return beta, gamma
 
     def init_xavier(self):
         torch.manual_seed(42)
@@ -203,8 +197,8 @@ class SIRNet(nn.Module):
                     m.bias.data.fill_(0.01)
         self.apply(init_weights)
 
-def compute_seird_derivatives(S, E, I, R, D, beta, delta, N):
-    gamma , alpha = 1/5.1, 0.02
+def compute_seird_derivatives(S, E, I, R, D, beta, gamma, N):
+    delta , alpha = 1/5.1, 0.02
     dSdt = -beta * S * I / N
     dEdt = beta * S * I / N - delta * E
     dIdt = delta * E - (1 - alpha) * gamma * I - alpha * D
@@ -212,18 +206,21 @@ def compute_seird_derivatives(S, E, I, R, D, beta, delta, N):
     dDdt = alpha * D
     return dSdt, dEdt, dIdt, dRdt, dDdt
 
-def enhanced_sir_loss(SIR_tensor, model_output, beta_pred, delta_pred, t_tensor, N):
+def enhanced_sir_loss(SIR_tensor, model_output, beta_pred, gamma_pred, t_tensor, N):
     S_pred, E_pred, I_pred, R_pred, D_pred = model_output[:, 0], model_output[:, 1], model_output[:, 2], model_output[:, 3], model_output[:, 4]
     
     # initial conditions from data
     N = N / N
     
+    # I_actual, D_actual = SIR_tensor[:, 0], SIR_tensor[:, 1]
+    
+    # S_actual = N - I_actual - D_actual 
     E_0 = 0.0
     I_0 = SIR_tensor[:, 0][0]
     D_0 = SIR_tensor[:, 1][0]
     R_0 = 0.0
     
-    S_0 = N - E_0 - I_0 - D_0 - R_0
+    S_0 = N - I_0 - D_0 - R_0
         
 
     S_t = torch.autograd.grad(S_pred, t_tensor, torch.ones_like(S_pred), create_graph=True)[0]
@@ -232,9 +229,12 @@ def enhanced_sir_loss(SIR_tensor, model_output, beta_pred, delta_pred, t_tensor,
     R_t = torch.autograd.grad(R_pred, t_tensor, torch.ones_like(R_pred), create_graph=True)[0]
     D_t = torch.autograd.grad(D_pred, t_tensor, torch.ones_like(D_pred), create_graph=True)[0]
 
-    dSdt_pred, dEdt_pred, dIdt_pred, dRdt_pred, dDdt_pred = compute_seird_derivatives(S_pred, E_pred, I_pred, R_pred, D_pred, beta_pred, delta_pred, N)
+    dSdt_pred, dEdt_pred, dIdt_pred, dRdt_pred, dDdt_pred = compute_seird_derivatives(S_pred, E_pred, I_pred, R_pred, D_pred, beta_pred, gamma_pred, N)
+    
+    # fitting_loss = torch.mean((S_actual - S_pred) ** 2) + torch.mean((I_actual - I_pred) ** 2) + torch.mean((D_actual - D_pred) ** 2)
 
-    fitting_loss = torch.mean((SIR_tensor[:, 0] - I_pred) ** 2) + torch.mean((SIR_tensor[:, 1] - D_pred) ** 2) + torch.mean((E_0 - E_pred[0]) ** 2) + torch.mean((I_0 - I_pred[0]) ** 2) + torch.mean((R_0 - R_pred[0]) ** 2) + torch.mean((D_0 - D_pred[0]) ** 2) + torch.mean((S_0 - S_pred[0]) ** 2)
+    fitting_loss = torch.mean((SIR_tensor[:, 0] - I_pred) ** 2) + torch.mean((SIR_tensor[:, 1] - D_pred) ** 2) + torch.mean((I_0 - I_pred[0]) ** 2) + torch.mean((R_0 - R_pred[0]) ** 2) + torch.mean((D_0 - D_pred[0]) ** 2) + torch.mean((S_0 - S_pred[0]) ** 2)
+    
     derivative_loss = torch.mean((S_t - dSdt_pred) ** 2) + torch.mean((E_t - dEdt_pred) ** 2) + torch.mean((I_t - dIdt_pred) ** 2) + torch.mean((R_t - dRdt_pred) ** 2) + torch.mean((D_t - dDdt_pred) ** 2)
     
     return fitting_loss + derivative_loss 
@@ -282,7 +282,7 @@ def train_models(param_model, sir_model, t_data, SIR_tensor, epochs, lr, N):
 
         losses.append(loss.item())
 
-        if (epoch + 1) % 100 == 0 or epoch == 0:
+        if (epoch + 1) % 500 == 0 or epoch == 0:
             print(f"Epoch [{epoch + 1}/{epochs}] - Loss: {loss.item():.6f}")
         
         if early_stopping(loss):
@@ -300,7 +300,7 @@ def plot_SIR_results_subplots(t_data, SIR_tensor, sir_model, title):
     I_pred, D_pred = sir_output[:, 2].cpu().numpy(), sir_output[:, 4].cpu().numpy()
     I_actual, D_actual = SIR_tensor[:, 0].cpu().numpy(), SIR_tensor[:, 1].cpu().numpy()
     
-    fig, axs = plt.subplots(1, 2, figsize=(10, 6))
+    fig, axs = plt.subplots(1, 2, figsize=(15, 6))
     
     axs[0].plot(dates, I_pred, label="$Infected$ (predicted)", color="red")
     axs[0].plot(dates, I_actual, label="$Infected$ (Actual)", color="red", linestyle="--")
@@ -315,36 +315,38 @@ def plot_SIR_results_subplots(t_data, SIR_tensor, sir_model, title):
     axs[1].legend()
     
     plt.tight_layout()
+    # slant the x-axis labels for better readability
+    plt.xticks(rotation=45)
     plt.show()
 
 def plot_param_results_subplots(t_data, param_model, title, N, model_output=None):
     with torch.no_grad():
-        beta_pred, delta_pred = param_model.get_params(t_data)
-        alpha = 0.02
-        S_t = model_output[:, 0]
+        beta_pred, gamma_pred = param_model.get_params(t_data)
+        delta , alpha = 1/5.1, 0.02
+        S_t = model_output[:, 0].cpu().detach().numpy().flatten()
         N = N / N
 
     # t_np = t_data.cpu().detach().numpy().flatten()
     dates = df["date"]
-    beta_pred, delta_pred = beta_pred.cpu().numpy(), delta_pred.cpu().numpy()
+    beta_pred, gamma_pred = beta_pred.cpu().numpy(), gamma_pred.cpu().numpy()
     
     # R_t of the SEIRD model, R_t = (beta / (gamma + alpha)) * (S_t / N)
-    R_t = (beta_pred / (1/5.1 + alpha)) * (S_t / N)
+    R_t = (beta_pred / (gamma_pred + alpha)) * (S_t / N)
     
-
-    fig, axs = plt.subplots(1, 2, figsize=(10, 6))
+    fig, axs = plt.subplots(1, 2, figsize=(15, 5))
 
     axs[0].plot(dates, beta_pred, label="Beta", color="purple")
     axs[0].set_xlabel("Days")
     axs[0].set_ylabel("Rate")
     axs[0].legend()
 
-    axs[1].plot(dates, delta_pred, label="Gamma", color="orange")
+    axs[1].plot(dates, gamma_pred, label="Gamma", color="orange")
     axs[1].set_xlabel("Days")
     axs[1].set_ylabel("Rate")
     axs[1].legend()
 
     plt.tight_layout()
+    plt.xticks(rotation=45)
     plt.show()
     
     
@@ -355,6 +357,7 @@ def plot_param_results_subplots(t_data, param_model, title, N, model_output=None
     plt.legend()
     plt.title(f'{title} - Effective Reproduction Number $R_t$')
     plt.tight_layout()
+    plt.xticks(rotation=45)
     plt.show()
 
 def plot_loss(losses, title):
@@ -365,6 +368,7 @@ def plot_loss(losses, title):
     plt.ylabel("Log10 Loss")
     plt.legend()
     plt.tight_layout()
+    plt.xticks(rotation=45)
     plt.show()
 
 def plot_E_pred(t, model, title):
@@ -378,7 +382,7 @@ def plot_E_pred(t, model, title):
     E_pred = predictions[:, 1]
     R_pred = predictions[:, 3]
     
-    fig, axs = plt.subplots(3, 1, figsize=(10, 6))
+    fig, axs = plt.subplots(3, 1, figsize=(10, 15))
     
     axs[0].plot(dates, S_pred, label="S(t)", color="blue")
     axs[0].set_xlabel("Days")
@@ -397,10 +401,11 @@ def plot_E_pred(t, model, title):
     
     
     plt.tight_layout()
+    plt.xticks(rotation=45)
     plt.show()
 
 # Initialize the models
-param_model = ParamNet(output_size=2, num_layers=3, hidden_neurons=20).to(device)
+param_model = ParamNet(output_size=2, num_layers=1, hidden_neurons=20).to(device)
 sir_model = SIRNet(num_layers=4, hidden_neurons=20).to(device)
 
 # Train the models and collect losses
