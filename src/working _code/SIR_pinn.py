@@ -405,7 +405,7 @@ def plot_E_pred(t, model, title):
     plt.show()
 
 # Initialize the models
-param_model = ParamNet(output_size=2, num_layers=1, hidden_neurons=20).to(device)
+param_model = ParamNet(output_size=2, num_layers=3, hidden_neurons=20).to(device)
 sir_model = SIRNet(num_layers=4, hidden_neurons=20).to(device)
 
 # Train the models and collect losses
