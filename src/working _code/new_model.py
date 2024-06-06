@@ -277,6 +277,7 @@ class EpiNet(nn.Module):
 
     def forward(self, t):
         return torch.sigmoid(self.net(t))
+    
 
     def init_xavier(self):
         def init_weights(layer):
