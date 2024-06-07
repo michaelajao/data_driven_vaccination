@@ -1,6 +1,7 @@
 import os
 import torch
 import numpy as np
+import matplotlib.dates as mdates
 import pandas as pd
 import matplotlib.pyplot as plt
 import torch.nn as nn
@@ -38,7 +39,7 @@ plt.rcParams.update(
         "axes.labelsize": 12,
         "axes.titlesize": 18,
         "axes.facecolor": "white",
-        "axes.grid": True,
+        "axes.grid": False,
         "axes.spines.top": False,
         "axes.spines.right": False,
         "axes.formatter.limits": (0, 5),
@@ -66,27 +67,6 @@ plt.rcParams.update(
         "image.cmap": "viridis",
     }
 )
-
-# def load_and_preprocess_data(filepath, recovery_period=21, rolling_window=7, start_date="2020-04-01"):
-#     df = pd.read_csv(filepath)
-#     required_columns = ["date", "cumulative_confirmed", "cumulative_deceased", "population", "new_confirmed", "new_deceased"]
-#     for col in required_columns:
-#         if col not in df.columns:
-#             raise ValueError(f"Missing required column: {col}")
-
-#     df["date"] = pd.to_datetime(df["date"])
-#     df["days_since_start"] = (df["date"] - pd.to_datetime(start_date)).dt.days
-#     for col in ["new_confirmed", "new_deceased", "cumulative_confirmed", "cumulative_deceased"]:
-#         df[col] = df[col].rolling(window=rolling_window, min_periods=1).mean().fillna(0)
-    
-#     df["recovered"] = df["cumulative_confirmed"].shift(recovery_period) - df["cumulative_deceased"].shift(recovery_period)
-#     df["recovered"] = df["recovered"].fillna(0).clip(lower=0)
-#     df["active_cases"] = df["cumulative_confirmed"] - df["recovered"] - df["cumulative_deceased"]
-#     df["S(t)"] = df["population"] - df["active_cases"] - df["recovered"] - df["cumulative_deceased"]
-#     df = df[df["date"] >= pd.to_datetime(start_date)].reset_index(drop=True)
-#     df[["recovered", "active_cases", "S(t)", "new_confirmed", "new_deceased", "cumulative_confirmed", "cumulative_deceased"]] = df[["recovered", "active_cases", "S(t)", "new_confirmed", "new_deceased", "cumulative_confirmed", "cumulative_deceased"]].clip(lower=0)
-    
-#     return df
 
 df = pd.read_csv("../../data/processed/england_data.csv")
 
@@ -125,7 +105,7 @@ def get_region_name_from_filepath(filepath):
     base = os.path.basename(filepath)
     return os.path.splitext(base)[0]
 
-df = load_and_preprocess_data("../../data/processed/england_data.csv", start_date="2021-12-01", end_date="2022-08-31")
+df = load_and_preprocess_data("../../data/processed/england_data.csv", start_date="2020-05-01", end_date="2022-08-31")
 
 # start_date = "2021-01-01"
 # end_date = "2021-08-31"
@@ -206,38 +186,36 @@ def compute_seird_derivatives(S, E, I, R, D, beta, gamma, N):
     dDdt = alpha * D
     return dSdt, dEdt, dIdt, dRdt, dDdt
 
+
 def enhanced_sir_loss(SIR_tensor, model_output, beta_pred, gamma_pred, t_tensor, N):
     S_pred, E_pred, I_pred, R_pred, D_pred = model_output[:, 0], model_output[:, 1], model_output[:, 2], model_output[:, 3], model_output[:, 4]
     
-    # initial conditions from data
+    I_actual, D_actual = SIR_tensor[:, 0], SIR_tensor[:, 1]
+
+    # Ensure N is normalized
     N = N / N
     
-    # I_actual, D_actual = SIR_tensor[:, 0], SIR_tensor[:, 1]
-    
-    # S_actual = N - I_actual - D_actual 
-    E_0 = 0.0
-    I_0 = SIR_tensor[:, 0][0]
-    D_0 = SIR_tensor[:, 1][0]
-    R_0 = 0.0
-    
-    S_0 = N - I_0 - D_0 - R_0
-        
-
+    # Compute gradients
     S_t = torch.autograd.grad(S_pred, t_tensor, torch.ones_like(S_pred), create_graph=True)[0]
     E_t = torch.autograd.grad(E_pred, t_tensor, torch.ones_like(E_pred), create_graph=True)[0]
     I_t = torch.autograd.grad(I_pred, t_tensor, torch.ones_like(I_pred), create_graph=True)[0]
     R_t = torch.autograd.grad(R_pred, t_tensor, torch.ones_like(R_pred), create_graph=True)[0]
     D_t = torch.autograd.grad(D_pred, t_tensor, torch.ones_like(D_pred), create_graph=True)[0]
 
+    # Compute derivatives from the model
     dSdt_pred, dEdt_pred, dIdt_pred, dRdt_pred, dDdt_pred = compute_seird_derivatives(S_pred, E_pred, I_pred, R_pred, D_pred, beta_pred, gamma_pred, N)
     
-    # fitting_loss = torch.mean((S_actual - S_pred) ** 2) + torch.mean((I_actual - I_pred) ** 2) + torch.mean((D_actual - D_pred) ** 2)
-
-    fitting_loss = torch.mean((SIR_tensor[:, 0] - I_pred) ** 2) + torch.mean((SIR_tensor[:, 1] - D_pred) ** 2) + torch.mean((S_0 - S_pred[0]) ** 2) + torch.mean((E_0 - E_pred[0]) ** 2) + torch.mean((R_0 - R_pred[0]) ** 2) 
+    # Data fitting loss
+    fitting_loss = torch.mean((I_actual - I_pred) ** 2) + torch.mean((D_actual - D_pred) ** 2)
     
+    # Derivative loss
     derivative_loss = torch.mean((S_t - dSdt_pred) ** 2) + torch.mean((E_t - dEdt_pred) ** 2) + torch.mean((I_t - dIdt_pred) ** 2) + torch.mean((R_t - dRdt_pred) ** 2) + torch.mean((D_t - dDdt_pred) ** 2)
     
-    return fitting_loss + derivative_loss 
+    # Combine losses
+    total_loss = fitting_loss + derivative_loss
+    
+    return total_loss
+
 
 class EarlyStopping:
     def __init__(self, patience=5, verbose=False, delta=0):
@@ -295,28 +273,33 @@ def plot_SIR_results_subplots(t_data, SIR_tensor, sir_model, title):
     with torch.no_grad():
         sir_output = sir_model(t_data)
         
-    # t_np = t_data.cpu().detach().numpy().flatten()
     dates = df["date"]
     I_pred, D_pred = sir_output[:, 2].cpu().numpy(), sir_output[:, 4].cpu().numpy()
     I_actual, D_actual = SIR_tensor[:, 0].cpu().numpy(), SIR_tensor[:, 1].cpu().numpy()
     
     fig, axs = plt.subplots(1, 2, figsize=(15, 6))
     
-    axs[0].plot(dates, I_pred, label="$Infected$ (predicted)", color="red")
-    axs[0].plot(dates, I_actual, label="$Infected$ (Actual)", color="red", linestyle="--")
-    axs[0].set_xlabel("Days")
+    axs[0].plot(dates, I_pred, label="Infected (predicted)", color="red")
+    axs[0].plot(dates, I_actual, label="Infected (actual)", color="red", linestyle="--")
+    axs[0].set_xlabel("Date")
     axs[0].set_ylabel("Proportion of Population")
+    axs[0].set_title("Infected Over Time")
     axs[0].legend()
+    axs[0].xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+    axs[0].xaxis.set_major_locator(mdates.MonthLocator())
+    axs[0].tick_params(axis='x', rotation=45)
     
-    axs[1].plot(dates, D_pred, label="$Recovered$ (predicted)", color="green")
-    axs[1].plot(dates, D_actual, label="$Recovered$ (Actual)", color="green", linestyle="--")
-    axs[1].set_xlabel("Days")
+    axs[1].plot(dates, D_pred, label="Deceased (predicted)", color="green")
+    axs[1].plot(dates, D_actual, label="Deceased (actual)", color="green", linestyle="--")
+    axs[1].set_xlabel("Date")
     axs[1].set_ylabel("Proportion of Population")
+    axs[1].set_title("Deceased Over Time")
     axs[1].legend()
+    axs[1].xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+    axs[1].xaxis.set_major_locator(mdates.MonthLocator())
+    axs[1].tick_params(axis='x', rotation=45)
     
     plt.tight_layout()
-    # slant the x-axis labels for better readability
-    plt.xticks(rotation=45)
     plt.show()
 
 def plot_param_results_subplots(t_data, param_model, title, N, model_output=None):
@@ -326,43 +309,51 @@ def plot_param_results_subplots(t_data, param_model, title, N, model_output=None
         S_t = model_output[:, 0].cpu().detach().numpy().flatten()
         N = N / N
 
-    # t_np = t_data.cpu().detach().numpy().flatten()
     dates = df["date"]
     beta_pred, gamma_pred = beta_pred.cpu().numpy(), gamma_pred.cpu().numpy()
     
-    # R_t of the SEIRD model, R_t = (beta / (gamma + alpha)) * (S_t / N)
     R_t = (beta_pred / (gamma_pred + alpha)) * (S_t / N)
     
-    fig, axs = plt.subplots(1, 2, figsize=(15, 5))
+    fig, axs = plt.subplots(1, 2, figsize=(15, 5), sharex=True)
 
     axs[0].plot(dates, beta_pred, label="Beta", color="purple")
-    axs[0].set_xlabel("Days")
+    axs[0].set_xlabel("Date")
     axs[0].set_ylabel("Rate")
+    axs[0].set_title("Beta Over Time")
     axs[0].legend()
+    axs[0].xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+    axs[0].xaxis.set_major_locator(mdates.MonthLocator())
+    axs[0].tick_params(axis='x', rotation=45)
     
     axs[1].plot(dates, gamma_pred, label="Gamma", color="orange")
-    axs[1].set_xlabel("Days")
+    axs[1].set_xlabel("Date")
     axs[1].set_ylabel("Rate")
+    axs[1].set_title("Gamma Over Time")
     axs[1].legend()
+    axs[1].xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+    axs[1].xaxis.set_major_locator(mdates.MonthLocator())
+    axs[1].tick_params(axis='x', rotation=45)
     
     plt.tight_layout()
-    plt.xticks(rotation=45)
     plt.show()
     
-    
-    plt.plot(dates, R_t, label="$R_t$", color="blue")
-    plt.axhline(y=1, color='r', linestyle='--', label="$R_t=1$")
-    plt.xlabel("Days")
-    plt.ylabel("$R_t$")
-    plt.legend()
+    plt.figure(figsize=(10, 6))
+    plt.plot(dates, R_t, label="R_t", color="blue")
+    plt.axhline(y=1, color='r', linestyle='--', label="R_t=1")
+    plt.xlabel("Date")
+    plt.ylabel("Effective Reproduction Number (R_t)")
     plt.title(f'{title} - Effective Reproduction Number $R_t$')
+    plt.legend()
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+    plt.gca().xaxis.set_major_locator(mdates.MonthLocator())
     plt.tight_layout()
     plt.xticks(rotation=45)
     plt.show()
 
 def plot_loss(losses, title):
+    plt.figure(figsize=(10, 6))
     plt.grid(True, which="both", ls=":")
-    plt.plot(np.arange(1, len(losses) + 1), np.log10(losses), label="Loss")
+    plt.plot(np.arange(1, len(losses) + 1), np.log10(losses), label="Loss", color="blue")
     plt.title(f"{title} Loss")
     plt.xlabel("Epochs")
     plt.ylabel("Log10 Loss")
@@ -376,43 +367,52 @@ def plot_E_pred(t, model, title):
     with torch.no_grad():
         predictions = model(t).cpu().numpy()
 
-    # t_np = t.cpu().detach().numpy().flatten()
     dates = df["date"]
     S_pred = predictions[:, 0]
     E_pred = predictions[:, 1]
     R_pred = predictions[:, 3]
     
-    fig, axs = plt.subplots(3, 1, figsize=(10, 15))
+    fig, axs = plt.subplots(3, 1, figsize=(10, 15), sharex=True)
     
     axs[0].plot(dates, S_pred, label="S(t)", color="blue")
-    axs[0].set_xlabel("Days")
+    axs[0].set_xlabel("Date")
     axs[0].set_ylabel("Proportion of Population")
+    axs[0].set_title("Susceptible Over Time")
     axs[0].legend()
+    axs[0].xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+    axs[0].xaxis.set_major_locator(mdates.MonthLocator())
     
     axs[1].plot(dates, E_pred, label="E(t)", color="orange")
-    axs[1].set_xlabel("Days")
+    axs[1].set_xlabel("Date")
     axs[1].set_ylabel("Proportion of Population")
+    axs[1].set_title("Exposed Over Time")
     axs[1].legend()
+    axs[1].xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+    axs[1].xaxis.set_major_locator(mdates.MonthLocator())
     
     axs[2].plot(dates, R_pred, label="R(t)", color="green")
-    axs[2].set_xlabel("Days")
+    axs[2].set_xlabel("Date")
     axs[2].set_ylabel("Proportion of Population")
+    axs[2].set_title("Recovered Over Time")
     axs[2].legend()
-    
+    axs[2].xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+    axs[2].xaxis.set_major_locator(mdates.MonthLocator())
     
     plt.tight_layout()
     plt.xticks(rotation=45)
     plt.show()
 
+
 # Initialize the models
 param_model = ParamNet(output_size=2, num_layers=1, hidden_neurons=20).to(device)
-sir_model = SIRNet(num_layers=4, hidden_neurons=20).to(device)
+sir_model = SIRNet(num_layers=5, hidden_neurons=20).to(device)
 
 # Train the models and collect losses
 losses = train_models(param_model, sir_model, t_data, SIR_tensor, epochs=50000, lr=2e-4, N=N)
 
+
 # Plot the results
-plot_SIR_results_subplots(t_data, SIR_tensor, sir_model, "SIR Model Predictions")
-plot_param_results_subplots(t_data, param_model, "SIR", N, model_output=sir_model(t_data))
-plot_loss(losses, "SIR")
-plot_E_pred(t_data, sir_model, "SIR")
+plot_SIR_results_subplots(t_data, SIR_tensor, sir_model, "SEIRD Model Predictions")
+plot_param_results_subplots(t_data, param_model, "SEIRD", N, model_output=sir_model(t_data))
+plot_loss(losses, "SEIRD")
+plot_E_pred(t_data, sir_model, "SEIRD")
