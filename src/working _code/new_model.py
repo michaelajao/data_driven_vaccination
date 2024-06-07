@@ -198,10 +198,10 @@ plt.show()
 
 def prepare_tensors(data, device):
     """Prepare tensors for training."""
-    I = tensor(data["new_confirmed"].values, dtype=torch.float32).view(-1, 1).to(device)
-    H = tensor(data["newAdmissions"].values, dtype=torch.float32).view(-1, 1).to(device)
-    C = tensor(data["covidOccupiedMVBeds"].values, dtype=torch.float32).view(-1, 1).to(device)
-    D = tensor(data["new_deceased"].values, dtype=torch.float32).view(-1, 1).to(device)
+    I = torch.tensor(data["new_confirmed"].values, dtype=torch.float32).view(-1, 1).to(device)
+    H = torch.tensor(data["newAdmissions"].values, dtype=torch.float32).view(-1, 1).to(device)
+    C = torch.tensor(data["covidOccupiedMVBeds"].values, dtype=torch.float32).view(-1, 1).to(device)
+    D = torch.tensor(data["new_deceased"].values, dtype=torch.float32).view(-1, 1).to(device)
     return I, H, C, D
 
 
@@ -276,7 +276,7 @@ class ParameterNet(nn.Module):
         for _ in range(num_layers - 1):
             layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
 
-        layers.append(nn.Linear(hidden_neurons, 1))
+        layers.append(nn.Linear(hidden_neurons, 6))
         self.net = nn.Sequential(*layers)
 
         self.init_xavier()
@@ -308,7 +308,6 @@ class ParameterNet(nn.Module):
         # Apply the weight initialization to the network
         self.net.apply(init_weights)
         
-
 
 def einn_loss(model_output, tensor_data, parameters, t):
     """Compute the loss function for the EINN model with L2 regularization."""
@@ -346,14 +345,14 @@ def einn_loss(model_output, tensor_data, parameters, t):
     beta_pred, omega_pred, mu_pred, gamma_c_pred, delta_c_pred, eta_pred = parameters
 
     # Compute the differential equations
-    S_t = grad(S_pred, t, grad_outputs=torch.ones_like(S_pred), create_graph=True)[0]
-    E_t = grad(E_pred, t, grad_outputs=torch.ones_like(E_pred), create_graph=True)[0]
-    Ia_t = grad(Ia_pred, t, grad_outputs=torch.ones_like(Ia_pred), create_graph=True)[0]
-    Is_t = grad(Is_pred, t, grad_outputs=torch.ones_like(Is_pred), create_graph=True)[0]
-    H_t = grad(H_pred, t, grad_outputs=torch.ones_like(H_pred), create_graph=True)[0]
-    C_t = grad(C_pred, t, grad_outputs=torch.ones_like(C_pred), create_graph=True)[0]
-    R_t = grad(R_pred, t, grad_outputs=torch.ones_like(R_pred), create_graph=True)[0]
-    D_t = grad(D_pred, t, grad_outputs=torch.ones_like(D_pred), create_graph=True)[0]
+    S_t = grad(S_pred, t, grad_outputs=torch.ones_like(S_pred), create_graph=True, retain_graph=True)[0]
+    E_t = grad(E_pred, t, grad_outputs=torch.ones_like(E_pred), create_graph=True, retain_graph=True)[0]
+    Ia_t = grad(Ia_pred, t, grad_outputs=torch.ones_like(Ia_pred), create_graph=True, retain_graph=True)[0]
+    Is_t = grad(Is_pred, t, grad_outputs=torch.ones_like(Is_pred), create_graph=True, retain_graph=True)[0]
+    H_t = grad(H_pred, t, grad_outputs=torch.ones_like(H_pred), create_graph=True, retain_graph=True)[0]
+    C_t = grad(C_pred, t, grad_outputs=torch.ones_like(C_pred), create_graph=True, retain_graph=True)[0]
+    R_t = grad(R_pred, t, grad_outputs=torch.ones_like(R_pred), create_graph=True, retain_graph=True)[0]
+    D_t = grad(D_pred, t, grad_outputs=torch.ones_like(D_pred), create_graph=True, retain_graph=True)[0]
     
     dSdt, dEdt, dIsdt, dIadt, dHdt, dCdt, dRdt, dDdt = seird_model(
         [S_pred, E_pred, Is_pred, Ia_pred, H_pred, C_pred, R_pred, D_pred],
@@ -395,38 +394,186 @@ def einn_loss(model_output, tensor_data, parameters, t):
     return loss
 
 
-class EarlyStopping:
-    def __init__(self, patience=7, verbose=False, delta=0, path="checkpoint.pt"):
-        self.patience = patience
-        self.verbose = verbose
-        self.counter = 0
-        self.best_score = None
-        self.early_stop = False
-        self.val_loss_min = np.Inf
-        self.delta = delta
-        self.path = path
+# Training loop
+def train_model(model, parameter_net, optimizer, scheduler, train_loader, num_epochs=100):
+    train_losses = []
 
-    def __call__(self, val_loss, model):
-        score = -val_loss
+    for epoch in range(num_epochs):
+        model.train()
+        parameter_net.train()
+        
+        train_loss = 0.0
+        for t, data in train_loader:
+            t = t.to(device).float()
+            data = data.to(device).float()
 
-        if self.best_score is None:
-            self.best_score = score
-            self.save_checkpoint(val_loss, model)
-        elif score < self.best_score + self.delta:
-            self.counter += 1
-            if self.verbose:
-                print(f"EarlyStopping counter: {self.counter} out of {self.patience}")
-            if self.counter >= self.patience:
-                self.early_stop = True
-        else:
-            self.best_score = score
-            self.save_checkpoint(val_loss, model)
-            self.counter = 0
+            # Zero gradients
+            optimizer.zero_grad()
+            
+            # Forward pass
+            model_output = model(t)
+            parameters = parameter_net.get_parameters(t)
+            
+            # Compute loss
+            loss = einn_loss(model_output, data, parameters, t)
+            
+            # Backward pass and optimization
+            loss.backward()
+            optimizer.step()
+            
+            train_loss += loss.item() * t.size(0)
+        
+        train_loss /= len(train_loader.dataset)
+        train_losses.append(train_loss)
 
-    def save_checkpoint(self, val_loss, model):
-        if self.verbose:
-            print(f"Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}). Saving model ...")
-        torch.save(model.state_dict(), self.path)
-        self.val_loss_min = val_loss
+        scheduler.step(train_loss)
+        
+        print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {train_loss:.6f}")
+
+    return train_losses
 
 
+# Prepare data for training
+data = load_preprocess_data(
+    "../../data/processed/england_data.csv",
+    "England",
+    recovery_period=21,
+    rolling_window=7,
+    end_date="2021-12-31",
+)
+
+scaled_data, scaler = scale_data(data, features, device)
+
+# Create TensorDataset and DataLoader
+time_stamps = torch.tensor(data.index.values, dtype=torch.float32, requires_grad=True).view(-1, 1)
+tensor_dataset = torch.utils.data.TensorDataset(time_stamps, scaled_data)
+train_size = len(tensor_dataset)
+train_dataset = tensor_dataset
+
+batch_size = 32
+train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+
+# Initialize model, optimizer, and scheduler
+model = EpiNet().to(device)
+parameter_net = ParameterNet().to(device)
+optimizer = optim.Adam(list(model.parameters()) + list(parameter_net.parameters()), lr=1e-3)
+scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
+
+# Train the model
+train_losses = train_model(model, parameter_net, optimizer, scheduler, train_loader, num_epochs=100)
+
+# Plot training loss
+plt.plot(train_losses, label='Train Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.title('Training Loss over Epochs')
+plt.legend()
+plt.savefig('../../reports/figures/training_loss.pdf')
+plt.show()
+
+# Save the trained model
+torch.save(model.state_dict(), "../../models/epinet_model.pth")
+torch.save(parameter_net.state_dict(), "../../models/parameter_net.pth")
+
+
+# Plot model outputs and parameters
+def plot_outputs(model, parameter_net, data, device):
+    model.eval()
+    parameter_net.eval()
+
+    with torch.no_grad():
+        time_stamps = torch.tensor(data.index.values, dtype=torch.float32).view(-1, 1).to(device)
+        model_output = model(time_stamps).cpu().numpy()
+        parameters = parameter_net.get_parameters(time_stamps).cpu().numpy()
+
+    dates = data["date"]
+
+    # Plot observed vs. predicted outputs
+    fig, axs = plt.subplots(4, 1, figsize=(12, 16), sharex=True)
+
+    axs[0].plot(dates, data["new_confirmed"], label="Observed Infections")
+    axs[0].plot(dates, model_output[:, 3], label="Predicted Infections")
+    axs[0].set_ylabel("New Confirmed Cases")
+    axs[0].legend()
+
+    axs[1].plot(dates, data["newAdmissions"], label="Observed Hospitalizations")
+    axs[1].plot(dates, model_output[:, 4], label="Predicted Hospitalizations")
+    axs[1].set_ylabel("New Admissions")
+    axs[1].legend()
+
+    axs[2].plot(dates, data["covidOccupiedMVBeds"], label="Observed Critical")
+    axs[2].plot(dates, model_output[:, 5], label="Predicted Critical")
+    axs[2].set_ylabel("Critical Cases")
+    axs[2].legend()
+
+    axs[3].plot(dates, data["new_deceased"], label="Observed Deaths")
+    axs[3].plot(dates, model_output[:, 6], label="Predicted Deaths")
+    axs[3].set_ylabel("New Deaths")
+    axs[3].legend()
+
+    plt.xlabel("Date")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.savefig('../../reports/figures/observed_vs_predicted.pdf')
+    plt.show()
+
+    # Plot unobserved outputs
+    fig, axs = plt.subplots(4, 1, figsize=(12, 16), sharex=True)
+
+    axs[0].plot(dates, model_output[:, 0], label="Susceptible")
+    axs[0].set_ylabel("Susceptible")
+    axs[0].legend()
+
+    axs[1].plot(dates, model_output[:, 1], label="Exposed")
+    axs[1].set_ylabel("Exposed")
+    axs[1].legend()
+
+    axs[2].plot(dates, model_output[:, 2], label="Asymptomatic Infected")
+    axs[2].set_ylabel("Asymptomatic Infected")
+    axs[2].legend()
+
+    axs[3].plot(dates, model_output[:, 7], label="Recovered")
+    axs[3].set_ylabel("Recovered")
+    axs[3].legend()
+
+    plt.xlabel("Date")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.savefig('../../reports/figures/unobserved_outputs.pdf')
+    plt.show()
+
+    # Plot time-varying parameters
+    fig, axs = plt.subplots(3, 2, figsize=(12, 16), sharex=True)
+
+    axs[0, 0].plot(dates, parameters[:, 0], label="Beta (Infection rate)")
+    axs[0, 0].set_ylabel("Beta")
+    axs[0, 0].legend()
+
+    axs[0, 1].plot(dates, parameters[:, 1], label="Omega (Symptomatic proportion)")
+    axs[0, 1].set_ylabel("Omega")
+    axs[0, 1].legend()
+
+    axs[1, 0].plot(dates, parameters[:, 2], label="Mu (Mortality rate)")
+    axs[1, 0].set_ylabel("Mu")
+    axs[1, 0].legend()
+
+    axs[1, 1].plot(dates, parameters[:, 3], label="Gamma_c (Critical recovery rate)")
+    axs[1, 1].set_ylabel("Gamma_c")
+    axs[1, 1].legend()
+
+    axs[2, 0].plot(dates, parameters[:, 4], label="Delta_c (Critical mortality rate)")
+    axs[2, 0].set_ylabel("Delta_c")
+    axs[2, 0].legend()
+
+    axs[2, 1].plot(dates, parameters[:, 5], label="Eta (Reinfection rate)")
+    axs[2, 1].set_ylabel("Eta")
+    axs[2, 1].legend()
+
+    plt.xlabel("Date")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.savefig('../../reports/figures/time_varying_parameters.pdf')
+    plt.show()
+
+# Plot the outputs and parameters
+plot_outputs(model, parameter_net, data, device)
