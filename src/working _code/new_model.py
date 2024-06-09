@@ -25,7 +25,7 @@ os.makedirs("../../reports/results", exist_ok=True)
 os.makedirs("../../reports/England", exist_ok=True)
 
 # Device setup for CUDA or CPU
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
 # Set random seed for reproducibility
 seed = 42
@@ -161,7 +161,6 @@ def seird_model(
     dDdt = mu * H + delta_c * C
 
     return [dSdt, dEdt, dIsdt, dIadt, dHdt, dCdt, dRdt, dDdt]
-
 
 def load_preprocess_data(
     filepath, areaname, recovery_period=16, rolling_window=7, end_date=None
@@ -300,12 +299,12 @@ class ParameterNet(nn.Module):
         raw_parameters = self.net(t)
         
         # Apply the sigmoid function to ensure the parameters are in the correct range
-        beta = torch.sigmoid(raw_parameters[:, 0])
-        omega = torch.sigmoid(raw_parameters[:, 1])
-        mu = torch.sigmoid(raw_parameters[:, 2])
-        gamma_c = torch.sigmoid(raw_parameters[:, 3])
-        delta_c = torch.sigmoid(raw_parameters[:, 4])
-        eta = torch.sigmoid(raw_parameters[:, 5])
+        beta = torch.sigmoid(raw_parameters[:, 0]) * 0.5
+        omega = torch.sigmoid(raw_parameters[:, 1]) * 0.1
+        mu = torch.sigmoid(raw_parameters[:, 2]) * 0.1
+        gamma_c = torch.sigmoid(raw_parameters[:, 3]) * 0.1
+        delta_c = torch.sigmoid(raw_parameters[:, 4]) * 0.1
+        eta = torch.sigmoid(raw_parameters[:, 5]) * 0.1
 
         return beta, omega, mu, gamma_c, delta_c, eta
     
@@ -325,7 +324,7 @@ def einn_loss(model_output, tensor_data, parameters, t):
     """Compute the loss function for the EINN model with L2 regularization."""
 
     # Split the model output into the different compartments
-    S_pred, E_pred, Ia_pred, Is_pred, H_pred, C_pred, D_pred, R_pred = (
+    S_pred, E_pred, Is_pred, Ia_pred, H_pred, C_pred, R_pred, D_pred = (
         model_output[:, 0],
         model_output[:, 1],
         model_output[:, 2],
@@ -335,6 +334,7 @@ def einn_loss(model_output, tensor_data, parameters, t):
         model_output[:, 6],
         model_output[:, 7],
     )
+    
 
     # Normalize the data
     N = 1
@@ -366,7 +366,7 @@ def einn_loss(model_output, tensor_data, parameters, t):
     R_t = grad(R_pred, t, grad_outputs=torch.ones_like(R_pred), create_graph=True, retain_graph=True)[0]
     D_t = grad(D_pred, t, grad_outputs=torch.ones_like(D_pred), create_graph=True, retain_graph=True)[0]
     
-    dSdt, dEdt, dIsdt, dIadt, dHdt, dCdt, dRdt, dDdt = seird_model(
+    dSdt, dEdt, dIadt, dIsdt, dHdt, dCdt, dRdt, dDdt = seird_model(
         [S_pred, E_pred, Is_pred, Ia_pred, H_pred, C_pred, R_pred, D_pred],
         t,
         N,
@@ -490,8 +490,8 @@ scaled_data, scaler = scale_data(data, features, device)
 
 # Initialize model, optimizer, and scheduler
 model = EpiNet(num_layers=5, hidden_neurons= 32, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=1, hidden_neurons=32).to(device)
-optimizer = optim.Adam(list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4)
+parameter_net = ParameterNet(num_layers=3, hidden_neurons=32).to(device)
+optimizer = optim.Adam(list(model.parameters()) + list(parameter_net.parameters()), lr=2e-4)
 scheduler = StepLR(optimizer, step_size=5000, gamma=0.9)
 
 # Early stopping
@@ -528,8 +528,8 @@ def plot_outputs(model, parameter_net, data, device, scaler):
         model_output = model(time_stamps)
         parameters = parameter_net.get_parameters(time_stamps)
 
-    # Extract only the observed outputs (columns 3, 4, 5, 6) for inverse scaling
-    observed_model_output = model_output[:, [3, 4, 5, 6]].cpu().numpy()
+    # Extract only the observed outputs (columns 2, 4, 5, 7) for inverse scaling
+    observed_model_output = model_output[:, [2, 4, 5, 7]].cpu().numpy()
     observed_model_output_scaled = scaler.inverse_transform(observed_model_output)
 
     dates = data["date"]
@@ -560,7 +560,7 @@ def plot_outputs(model, parameter_net, data, device, scaler):
         
     plt.tight_layout()
     plt.legend()
-    plt.savefig('../../reports/figures/observed_vs_predicted_1x4.pdf')
+    plt.savefig('../../reports/figures/observed_vs_predicted.pdf')
     plt.show()
 
     # Plot unobserved outputs in a 1x4 grid
@@ -583,10 +583,10 @@ def plot_outputs(model, parameter_net, data, device, scaler):
         ax.tick_params(axis='x', rotation=45)
         
     plt.tight_layout()
-    plt.savefig('../../reports/figures/unobserved_outputs_1x4.pdf')
+    plt.savefig('../../reports/figures/unobserved_outputs.pdf')
     plt.show()
 
-    # Plot time-varying parameters in a 3x2 grid
+    # Plot time-varying parameters in a 2 * 3 grid
     fig, axs = plt.subplots(2, 3, figsize=(18, 10), sharex=True)
     parameters_np = [p.cpu().numpy() for p in parameters]
 
@@ -620,7 +620,7 @@ def plot_outputs(model, parameter_net, data, device, scaler):
         ax.tick_params(axis='x', rotation=45)
         
     plt.tight_layout()
-    plt.savefig('../../reports/figures/time_varying_parameters_3x3.pdf')
+    plt.savefig('../../reports/figures/time_varying_parameters.pdf')
     plt.show()
 
 # Plot the outputs and parameters

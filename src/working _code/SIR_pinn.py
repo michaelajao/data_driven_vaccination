@@ -300,6 +300,7 @@ def plot_SIR_results_subplots(t_data, SIR_tensor, sir_model, title):
     axs[1].tick_params(axis='x', rotation=45)
     
     plt.tight_layout()
+    plt.savefig(f"../../reports/figures/{title}_SEIRD_results.pdf")
     plt.show()
 
 def plot_param_results_subplots(t_data, param_model, title, N, model_output=None):
@@ -335,6 +336,7 @@ def plot_param_results_subplots(t_data, param_model, title, N, model_output=None
     axs[1].tick_params(axis='x', rotation=45)
     
     plt.tight_layout()
+    plt.savefig(f"../../reports/figures/{title}_SEIRD_params.pdf")
     plt.show()
     
     plt.figure(figsize=(10, 6))
@@ -348,6 +350,7 @@ def plot_param_results_subplots(t_data, param_model, title, N, model_output=None
     plt.gca().xaxis.set_major_locator(mdates.MonthLocator())
     plt.tight_layout()
     plt.xticks(rotation=45)
+    plt.savefig(f"../../reports/figures/{title}_SEIRD_R_t.pdf")
     plt.show()
 
 def plot_loss(losses, title):
@@ -360,6 +363,7 @@ def plot_loss(losses, title):
     plt.legend()
     plt.tight_layout()
     plt.xticks(rotation=45)
+    plt.savefig(f"../../reports/figures/{title}_SEIRD_loss.pdf")
     plt.show()
 
 def plot_E_pred(t, model, title):
@@ -400,6 +404,7 @@ def plot_E_pred(t, model, title):
     
     plt.tight_layout()
     plt.xticks(rotation=45)
+    plt.savefig(f"../../reports/figures/{title}_SEIRD_E_pred.pdf")
     plt.show()
 
 
