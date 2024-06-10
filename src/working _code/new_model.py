@@ -230,7 +230,7 @@ data = load_and_preprocess_data(
     "../../data/processed/england_data.csv",
     "England",
     rolling_window=7,
-    start_date="2020-04-01", end_date="2020-12-31"
+    start_date="2020-01-01", end_date="2021-12-31"
 )
 
 
@@ -559,7 +559,16 @@ def plot_outputs(model, parameter_net, data, device, scaler):
         parameters = parameter_net.get_parameters(time_stamps)
 
     # Extract only the observed outputs (columns 2, 4, 5, 7) for inverse scaling
-    observed_model_output = model_output[:, [2, 4, 5, 7]].cpu().numpy()
+    observed_model_output = pd.DataFrame(
+        {
+            "daily_confirmed": model_output[:, 2].cpu().numpy(),
+            "daily_hospitalized": model_output[:, 4].cpu().numpy(),
+            "covidOccupiedMVBeds": model_output[:, 5].cpu().numpy(),
+            "daily_deceased": model_output[:, 7].cpu().numpy(),
+        },
+        index=data.index,
+    )
+    
     observed_model_output_scaled = scaler.inverse_transform(observed_model_output)
 
     dates = data["date"]
