@@ -489,13 +489,13 @@ data = load_preprocess_data(
 scaled_data, scaler = scale_data(data, features, device)
 
 # Initialize model, optimizer, and scheduler
-model = EpiNet(num_layers=5, hidden_neurons= 32, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=3, hidden_neurons=32).to(device)
+model = EpiNet(num_layers=5, hidden_neurons= 20, output_size=8).to(device)
+parameter_net = ParameterNet(num_layers=1, hidden_neurons=20).to(device)
 optimizer = optim.Adam(list(model.parameters()) + list(parameter_net.parameters()), lr=2e-4)
 scheduler = StepLR(optimizer, step_size=5000, gamma=0.9)
 
 # Early stopping
-early_stopping = EarlyStopping(patience=200, verbose=True)
+early_stopping = EarlyStopping(patience=100, verbose=True)
 
 # Create timestamps tensor
 time_stamps = torch.tensor(data.index.values, dtype=torch.float32).view(-1, 1).to(device).requires_grad_()
@@ -572,10 +572,10 @@ def plot_outputs(model, parameter_net, data, device, scaler):
     axs[1].plot(dates, model_output[:, 1].cpu(), label="Exposed", color='green')
     axs[1].set_ylabel("Exposed")
 
-    axs[2].plot(dates, model_output[:, 2].cpu(), label="Asymptomatic Infected", color='green')
+    axs[2].plot(dates, model_output[:, 3].cpu(), label="Asymptomatic Infected", color='green')
     axs[2].set_ylabel("Asymptomatic Infected")
 
-    axs[3].plot(dates, model_output[:, 7].cpu(), label="Recovered", color='green')
+    axs[3].plot(dates, model_output[:, 6].cpu(), label="Recovered", color='green')
     axs[3].set_ylabel("Recovered")
 
     for ax in axs:
