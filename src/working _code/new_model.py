@@ -34,6 +34,21 @@ if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = False
 np.random.seed(seed)
 
+def check_pytorch():
+    """Check PyTorch and CUDA setup."""
+    print(f"PyTorch version: {torch.__version__}")
+    cuda_available = torch.cuda.is_available()
+    print(f"CUDA available: {cuda_available}")
+    if cuda_available:
+        print(f"CUDA version: {torch.version.cuda}")
+        gpu_count = torch.cuda.device_count()
+        print(f"Available GPUs: {gpu_count}")
+        for i in range(gpu_count):
+            print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
+    else:
+        print("CUDA not available. PyTorch will run on CPU.")
+
+check_pytorch()
 
 # Device setup for CUDA or CPU
 def get_device():
@@ -323,12 +338,12 @@ class ParameterNet(nn.Module):
         raw_parameters = self.net(t)
         
         # Apply the sigmoid function to ensure the parameters are in the correct range
-        beta = torch.sigmoid(raw_parameters[:, 0]) * 0.5
-        omega = torch.sigmoid(raw_parameters[:, 1]) * 0.1
-        mu = torch.sigmoid(raw_parameters[:, 2]) * 0.1
-        gamma_c = torch.sigmoid(raw_parameters[:, 3]) * 0.1
-        delta_c = torch.sigmoid(raw_parameters[:, 4]) * 0.1
-        eta = torch.sigmoid(raw_parameters[:, 5]) * 0.1
+        beta = torch.sigmoid(raw_parameters[:, 0]) 
+        omega = torch.sigmoid(raw_parameters[:, 1])
+        mu = torch.sigmoid(raw_parameters[:, 2])
+        gamma_c = torch.sigmoid(raw_parameters[:, 3]) 
+        delta_c = torch.sigmoid(raw_parameters[:, 4])
+        eta = torch.sigmoid(raw_parameters[:, 5])
 
         return beta, omega, mu, gamma_c, delta_c, eta
     
