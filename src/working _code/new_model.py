@@ -162,43 +162,74 @@ def seird_model(
 
     return [dSdt, dEdt, dIsdt, dIadt, dHdt, dCdt, dRdt, dDdt]
 
-def load_preprocess_data(
-    filepath, areaname, recovery_period=16, rolling_window=7, end_date=None
-):
-    """Load and preprocess the COVID-19 data."""
+# def load_preprocess_data(
+#     filepath, areaname, recovery_period=16, rolling_window=7, end_date=None
+# ):
+#     """Load and preprocess the COVID-19 data."""
+#     df = pd.read_csv(filepath)
+
+#     # Convert the date column to datetime
+#     df["date"] = pd.to_datetime(df["date"])
+
+#     # Select data up to the end_date
+#     if end_date:
+#         df = df[df["date"] <= end_date]
+
+#     cols_to_smooth = [
+#         "cumulative_confirmed",
+#         "cumulative_deceased",
+#         "hospitalCases",
+#         "covidOccupiedMVBeds",
+#         "new_deceased",
+#         "new_confirmed",
+#         "newAdmissions",
+#     ]
+#     for col in cols_to_smooth:
+#         df[col] = df[col].rolling(window=rolling_window, min_periods=1).mean().fillna(0)
+
+#     return df
+
+def load_and_preprocess_data(filepath, areaname, rolling_window=7, start_date="2020-04-01", end_date="2021-08-31"):
     df = pd.read_csv(filepath)
-
-    # Convert the date column to datetime
     df["date"] = pd.to_datetime(df["date"])
-
-    # Select data up to the end_date
-    if end_date:
-        df = df[df["date"] <= end_date]
-
-    cols_to_smooth = [
-        "cumulative_confirmed",
-        "cumulative_deceased",
-        "hospitalCases",
-        "covidOccupiedMVBeds",
-        "new_deceased",
-        "new_confirmed",
-        "newAdmissions",
-    ]
-    for col in cols_to_smooth:
+    
+    # Compute daily new values from cumulative values
+    df['daily_confirmed'] = df["cumulative_confirmed"].diff().fillna(0)
+    df['daily_deceased'] = df["cumulative_deceased"].diff().fillna(0)
+    df['daily_hospitalized'] = df["cumAdmissions"].diff().fillna(0)
+    
+    # Ensure no negative values
+    df['daily_confirmed'] = df['daily_confirmed'].clip(lower=0)
+    df['daily_deceased'] = df['daily_deceased'].clip(lower=0)
+    df['daily_hospitalized'] = df['daily_hospitalized'].clip(lower=0)
+    
+    required_columns = ["date","population", "cumulative_confirmed", "cumulative_deceased", "new_confirmed", "new_deceased", "cumAdmissions", "daily_confirmed", "daily_deceased", "daily_hospitalized", "hospitalCases", "covidOccupiedMVBeds", "newAdmissions"]
+    
+    # Select required columns
+    df = df[required_columns]
+    
+    # Apply 7-day rolling average to smooth out data (except for date and population)
+    for col in required_columns[2:]:
         df[col] = df[col].rolling(window=rolling_window, min_periods=1).mean().fillna(0)
-
+        
+    # Select data from start date to end date
+    mask = (df["date"] >= start_date) & (df["date"] <= end_date)
+    df = df.loc[mask]
+    
     return df
 
-
-data = load_preprocess_data(
+data = load_and_preprocess_data(
     "../../data/processed/england_data.csv",
     "England",
-    recovery_period=21,
     rolling_window=7,
-    end_date="2021-12-31",
+    start_date="2020-04-01", end_date="2020-12-31"
 )
 
-plt.plot(data["date"], data["new_deceased"])
+
+# Print the columns to ensure the required columns are created
+print("DataFrame columns:", data.columns)
+
+plt.plot(data["date"], data["daily_deceased"])
 plt.title("New Deceased over time")
 plt.xlabel("Date")
 plt.ylabel("New Deceased")
@@ -209,10 +240,10 @@ plt.show()
 
 def prepare_tensors(data, device):
     """Prepare tensors for training."""
-    I = torch.tensor(data["new_confirmed"].values, dtype=torch.float32).view(-1, 1).to(device)
-    H = torch.tensor(data["newAdmissions"].values, dtype=torch.float32).view(-1, 1).to(device)
+    I = torch.tensor(data["daily_confirmed"].values, dtype=torch.float32).view(-1, 1).to(device)
+    H = torch.tensor(data["daily_hospitalized"].values, dtype=torch.float32).view(-1, 1).to(device)
     C = torch.tensor(data["covidOccupiedMVBeds"].values, dtype=torch.float32).view(-1, 1).to(device)
-    D = torch.tensor(data["new_deceased"].values, dtype=torch.float32).view(-1, 1).to(device)
+    D = torch.tensor(data["daily_deceased"].values, dtype=torch.float32).view(-1, 1).to(device)
     return I, H, C, D
 
 
@@ -231,10 +262,10 @@ def scale_data(data, features, device):
 
 
 features = [
-    "new_confirmed",
-    "newAdmissions",
+    "daily_confirmed",
+    "daily_hospitalized",
     "covidOccupiedMVBeds",
-    "new_deceased",
+    "daily_deceased",
 ]
 
 # Split and scale the data
@@ -490,8 +521,8 @@ scaled_data, scaler = scale_data(data, features, device)
 
 # Initialize model, optimizer, and scheduler
 model = EpiNet(num_layers=5, hidden_neurons= 20, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=1, hidden_neurons=20).to(device)
-optimizer = optim.Adam(list(model.parameters()) + list(parameter_net.parameters()), lr=2e-4)
+parameter_net = ParameterNet(num_layers=2, hidden_neurons=20).to(device)
+optimizer = optim.Adam(list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4)
 scheduler = StepLR(optimizer, step_size=5000, gamma=0.9)
 
 # Early stopping
@@ -537,11 +568,11 @@ def plot_outputs(model, parameter_net, data, device, scaler):
     # Plot observed vs. predicted outputs in a 1x4 grid
     fig, axs = plt.subplots(1, 4, figsize=(24, 6), sharex=True)
 
-    axs[0].plot(dates, data["new_confirmed"], label="Observed Infections", color='blue')
+    axs[0].plot(dates, data["daily_confirmed"], label="Observed Infections", color='blue')
     axs[0].plot(dates, observed_model_output_scaled[:, 0], label="Predicted Infections", linestyle='--', color='red')
     axs[0].set_ylabel("New Confirmed Cases")
 
-    axs[1].plot(dates, data["newAdmissions"], label="Observed Hospitalizations", color='blue')
+    axs[1].plot(dates, data["daily_hospitalized"], label="Observed Hospitalizations", color='blue')
     axs[1].plot(dates, observed_model_output_scaled[:, 1], label="Predicted Hospitalizations", linestyle='--', color='red')
     axs[1].set_ylabel("New Admissions")
 
@@ -550,7 +581,7 @@ def plot_outputs(model, parameter_net, data, device, scaler):
     axs[2].set_ylabel("Critical Cases")
 
 
-    axs[3].plot(dates, data["new_deceased"], label="Observed Deaths", color='blue')
+    axs[3].plot(dates, data["daily_deceased"], label="Observed Deaths", color='blue')
     axs[3].plot(dates, observed_model_output_scaled[:, 3], label="Predicted Deaths", linestyle='--', color='red')
     axs[3].set_ylabel("New Deaths")
 
@@ -625,3 +656,4 @@ def plot_outputs(model, parameter_net, data, device, scaler):
 
 # Plot the outputs and parameters
 plot_outputs(model, parameter_net, data, device, scaler)
+
