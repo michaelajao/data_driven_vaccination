@@ -520,10 +520,10 @@ def train_model(model, parameter_net, optimizer, scheduler, time_stamps, data_sc
 scaled_data, scaler = scale_data(data, features, device)
 
 # Initialize model, optimizer, and scheduler
-model = EpiNet(num_layers=5, hidden_neurons= 20, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=5, hidden_neurons=20).to(device)
+model = EpiNet(num_layers=5, hidden_neurons= 32, output_size=8).to(device)
+parameter_net = ParameterNet(num_layers=5, hidden_neurons=32).to(device)
 optimizer = optim.Adam(list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4)
-scheduler = StepLR(optimizer, step_size=5000, gamma=0.9)
+scheduler = StepLR(optimizer, step_size=10000, gamma=0.9)
 
 # Early stopping
 early_stopping = EarlyStopping(patience=100, verbose=True)
