@@ -24,8 +24,6 @@ os.makedirs("../../reports/figures", exist_ok=True)
 os.makedirs("../../reports/results", exist_ok=True)
 os.makedirs("../../reports/England", exist_ok=True)
 
-# Device setup for CUDA or CPU
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
 # Set random seed for reproducibility
 seed = 42
@@ -37,22 +35,17 @@ if torch.cuda.is_available():
 np.random.seed(seed)
 
 
-def check_pytorch():
-    """Check PyTorch and CUDA setup."""
-    print(f"PyTorch version: {torch.__version__}")
-    cuda_available = torch.cuda.is_available()
-    print(f"CUDA available: {cuda_available}")
-    if cuda_available:
-        print(f"CUDA version: {torch.version.cuda}")
-        gpu_count = torch.cuda.device_count()
-        print(f"Available GPUs: {gpu_count}")
-        for i in range(gpu_count):
-            print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
-    else:
-        print("CUDA not available. PyTorch will run on CPU.")
+# Device setup for CUDA or CPU
+def get_device():
+    if torch.cuda.is_available():
+        device_count = torch.cuda.device_count()
+        for i in range(device_count):
+            if torch.cuda.get_device_name(i):
+                return torch.device(f"cuda:{i}")
+    return torch.device("cpu")
 
-
-check_pytorch()
+device = get_device()
+print(f"Using device: {device}")
 
 # Set matplotlib style and parameters
 plt.style.use("seaborn-v0_8-paper")
@@ -507,15 +500,6 @@ def train_model(model, parameter_net, optimizer, scheduler, time_stamps, data_sc
 
     return train_losses
 
-
-# Prepare data for training
-data = load_preprocess_data(
-    "../../data/processed/england_data.csv",
-    "England",
-    recovery_period=21,
-    rolling_window=7,
-    end_date="2021-12-31",
-)
 
 scaled_data, scaler = scale_data(data, features, device)
 
