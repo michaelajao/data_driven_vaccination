@@ -34,6 +34,7 @@ if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = False
 np.random.seed(seed)
 
+
 def check_pytorch():
     """Check PyTorch and CUDA setup."""
     print(f"PyTorch version: {torch.__version__}")
@@ -48,7 +49,9 @@ def check_pytorch():
     else:
         print("CUDA not available. PyTorch will run on CPU.")
 
+
 check_pytorch()
+
 
 # Device setup for CUDA or CPU
 def get_device():
@@ -59,13 +62,15 @@ def get_device():
                 return torch.device(f"cuda:{i}")
     return torch.device("cpu")
 
+
 device = get_device()
 print(f"Using device: {device}")
 
 # Set matplotlib style and parameters
 plt.style.use("seaborn-v0_8-paper")
 plt.rcParams.update(
-    {   "font.family": "serif",
+    {
+        "font.family": "serif",
         "font.size": 14,
         "figure.figsize": [8, 5],
         "text.usetex": True,
@@ -108,6 +113,7 @@ plt.rcParams.update(
         "image.cmap": "viridis",
     }
 )
+
 
 def normalized_root_mean_square_error(y_true, y_pred):
     """Calculate the Normalized Root Mean Square Error (NRMSE)."""
@@ -170,6 +176,7 @@ def seird_model(
 
     return [dSdt, dEdt, dIsdt, dIadt, dHdt, dCdt, dRdt, dDdt]
 
+
 # def load_preprocess_data(
 #     filepath, areaname, recovery_period=16, rolling_window=7, end_date=None
 # ):
@@ -197,47 +204,66 @@ def seird_model(
 
 #     return df
 
-def load_and_preprocess_data(filepath, areaname, rolling_window=7, start_date="2020-04-01", end_date="2021-08-31"):
+
+def load_and_preprocess_data(
+    filepath, areaname, rolling_window=7, start_date="2020-04-01", end_date="2021-08-31"
+):
     df = pd.read_csv(filepath)
     df["date"] = pd.to_datetime(df["date"])
-    
+
     # Compute daily new values from cumulative values
-    df['daily_confirmed'] = df["cumulative_confirmed"].diff().fillna(0)
-    df['daily_deceased'] = df["cumulative_deceased"].diff().fillna(0)
-    df['daily_hospitalized'] = df["cumAdmissions"].diff().fillna(0)
-    
+    df["daily_confirmed"] = df["cumulative_confirmed"].diff().fillna(0)
+    df["daily_deceased"] = df["cumulative_deceased"].diff().fillna(0)
+    df["daily_hospitalized"] = df["cumAdmissions"].diff().fillna(0)
+
     # Ensure no negative values
-    df['daily_confirmed'] = df['daily_confirmed'].clip(lower=0)
-    df['daily_deceased'] = df['daily_deceased'].clip(lower=0)
-    df['daily_hospitalized'] = df['daily_hospitalized'].clip(lower=0)
-    
-    required_columns = ["date","population", "cumulative_confirmed", "cumulative_deceased", "new_confirmed", "new_deceased", "cumAdmissions", "daily_confirmed", "daily_deceased", "daily_hospitalized", "hospitalCases", "covidOccupiedMVBeds", "newAdmissions"]
-    
+    df["daily_confirmed"] = df["daily_confirmed"].clip(lower=0)
+    df["daily_deceased"] = df["daily_deceased"].clip(lower=0)
+    df["daily_hospitalized"] = df["daily_hospitalized"].clip(lower=0)
+
+    required_columns = [
+        "date",
+        "population",
+        "cumulative_confirmed",
+        "cumulative_deceased",
+        "new_confirmed",
+        "new_deceased",
+        "cumAdmissions",
+        "daily_confirmed",
+        "daily_deceased",
+        "daily_hospitalized",
+        "hospitalCases",
+        "covidOccupiedMVBeds",
+        "newAdmissions",
+    ]
+
     # Select required columns
     df = df[required_columns]
-    
+
     # Apply 7-day rolling average to smooth out data (except for date and population)
     for col in required_columns[2:]:
         df[col] = df[col].rolling(window=rolling_window, min_periods=1).mean().fillna(0)
-        
+
     # Select data from start date to end date
     mask = (df["date"] >= start_date) & (df["date"] <= end_date)
     df = df.loc[mask]
-    
+
     return df
+
 
 data = load_and_preprocess_data(
     "../../data/processed/england_data.csv",
     "England",
     rolling_window=7,
-    start_date="2020-01-01", end_date="2021-12-31"
+    start_date="2020-01-01",
+    end_date="2021-12-31",
 )
 
 
 # Print the columns to ensure the required columns are created
 print("DataFrame columns:", data.columns)
 
-plt.plot(data["date"], data["daily_deceased"])
+plt.plot(data["date"], data["new_deceased"])
 plt.title("New Deceased over time")
 plt.xlabel("Date")
 plt.ylabel("New Deceased")
@@ -248,10 +274,26 @@ plt.show()
 
 def prepare_tensors(data, device):
     """Prepare tensors for training."""
-    I = torch.tensor(data["daily_confirmed"].values, dtype=torch.float32).view(-1, 1).to(device)
-    H = torch.tensor(data["daily_hospitalized"].values, dtype=torch.float32).view(-1, 1).to(device)
-    C = torch.tensor(data["covidOccupiedMVBeds"].values, dtype=torch.float32).view(-1, 1).to(device)
-    D = torch.tensor(data["daily_deceased"].values, dtype=torch.float32).view(-1, 1).to(device)
+    I = (
+        torch.tensor(data["new_confirmed"].values, dtype=torch.float32)
+        .view(-1, 1)
+        .to(device)
+    )
+    H = (
+        torch.tensor(data["newAdmissions"].values, dtype=torch.float32)
+        .view(-1, 1)
+        .to(device)
+    )
+    C = (
+        torch.tensor(data["covidOccupiedMVBeds"].values, dtype=torch.float32)
+        .view(-1, 1)
+        .to(device)
+    )
+    D = (
+        torch.tensor(data["new_deceased"].values, dtype=torch.float32)
+        .view(-1, 1)
+        .to(device)
+    )
     return I, H, C, D
 
 
@@ -270,10 +312,10 @@ def scale_data(data, features, device):
 
 
 features = [
-    "daily_confirmed",
-    "daily_hospitalized",
+    "new_confirmed",
+    "newAdmissions",
     "covidOccupiedMVBeds",
-    "daily_deceased",
+    "new_deceased",
 ]
 
 # Split and scale the data
@@ -333,20 +375,20 @@ class ParameterNet(nn.Module):
 
     def forward(self, t):
         return self.net(t)
-    
+
     def get_parameters(self, t):
         raw_parameters = self.net(t)
-        
+
         # Apply the sigmoid function to ensure the parameters are in the correct range
-        beta = torch.sigmoid(raw_parameters[:, 0]) 
+        beta = torch.sigmoid(raw_parameters[:, 0])
         omega = torch.sigmoid(raw_parameters[:, 1])
         mu = torch.sigmoid(raw_parameters[:, 2])
-        gamma_c = torch.sigmoid(raw_parameters[:, 3]) 
+        gamma_c = torch.sigmoid(raw_parameters[:, 3])
         delta_c = torch.sigmoid(raw_parameters[:, 4])
         eta = torch.sigmoid(raw_parameters[:, 5])
 
         return beta, omega, mu, gamma_c, delta_c, eta
-    
+
     def init_xavier(self):
         def init_weights(layer):
             if isinstance(layer, nn.Linear):
@@ -357,7 +399,7 @@ class ParameterNet(nn.Module):
 
         # Apply the weight initialization to the network
         self.net.apply(init_weights)
-        
+
 
 def einn_loss(model_output, tensor_data, parameters, t):
     """Compute the loss function for the EINN model with L2 regularization."""
@@ -373,7 +415,6 @@ def einn_loss(model_output, tensor_data, parameters, t):
         model_output[:, 6],
         model_output[:, 7],
     )
-    
 
     # Normalize the data
     N = 1
@@ -396,15 +437,63 @@ def einn_loss(model_output, tensor_data, parameters, t):
     beta_pred, omega_pred, mu_pred, gamma_c_pred, delta_c_pred, eta_pred = parameters
 
     # Compute the differential equations
-    S_t = grad(S_pred, t, grad_outputs=torch.ones_like(S_pred), create_graph=True, retain_graph=True)[0]
-    E_t = grad(E_pred, t, grad_outputs=torch.ones_like(E_pred), create_graph=True, retain_graph=True)[0]
-    Ia_t = grad(Ia_pred, t, grad_outputs=torch.ones_like(Ia_pred), create_graph=True, retain_graph=True)[0]
-    Is_t = grad(Is_pred, t, grad_outputs=torch.ones_like(Is_pred), create_graph=True, retain_graph=True)[0]
-    H_t = grad(H_pred, t, grad_outputs=torch.ones_like(H_pred), create_graph=True, retain_graph=True)[0]
-    C_t = grad(C_pred, t, grad_outputs=torch.ones_like(C_pred), create_graph=True, retain_graph=True)[0]
-    R_t = grad(R_pred, t, grad_outputs=torch.ones_like(R_pred), create_graph=True, retain_graph=True)[0]
-    D_t = grad(D_pred, t, grad_outputs=torch.ones_like(D_pred), create_graph=True, retain_graph=True)[0]
-    
+    S_t = grad(
+        S_pred,
+        t,
+        grad_outputs=torch.ones_like(S_pred),
+        create_graph=True,
+        retain_graph=True,
+    )[0]
+    E_t = grad(
+        E_pred,
+        t,
+        grad_outputs=torch.ones_like(E_pred),
+        create_graph=True,
+        retain_graph=True,
+    )[0]
+    Ia_t = grad(
+        Ia_pred,
+        t,
+        grad_outputs=torch.ones_like(Ia_pred),
+        create_graph=True,
+        retain_graph=True,
+    )[0]
+    Is_t = grad(
+        Is_pred,
+        t,
+        grad_outputs=torch.ones_like(Is_pred),
+        create_graph=True,
+        retain_graph=True,
+    )[0]
+    H_t = grad(
+        H_pred,
+        t,
+        grad_outputs=torch.ones_like(H_pred),
+        create_graph=True,
+        retain_graph=True,
+    )[0]
+    C_t = grad(
+        C_pred,
+        t,
+        grad_outputs=torch.ones_like(C_pred),
+        create_graph=True,
+        retain_graph=True,
+    )[0]
+    R_t = grad(
+        R_pred,
+        t,
+        grad_outputs=torch.ones_like(R_pred),
+        create_graph=True,
+        retain_graph=True,
+    )[0]
+    D_t = grad(
+        D_pred,
+        t,
+        grad_outputs=torch.ones_like(D_pred),
+        create_graph=True,
+        retain_graph=True,
+    )[0]
+
     dSdt, dEdt, dIadt, dIsdt, dHdt, dCdt, dRdt, dDdt = seird_model(
         [S_pred, E_pred, Is_pred, Ia_pred, H_pred, C_pred, R_pred, D_pred],
         t,
@@ -442,7 +531,7 @@ def einn_loss(model_output, tensor_data, parameters, t):
     )
 
     loss = data_loss + residual_loss
-    
+
     return loss
 
 
@@ -472,13 +561,22 @@ class EarlyStopping:
 
 
 # Training loop
-def train_model(model, parameter_net, optimizer, scheduler, time_stamps, data_scaled, num_epochs=100, early_stopping=None):
+def train_model(
+    model,
+    parameter_net,
+    optimizer,
+    scheduler,
+    time_stamps,
+    data_scaled,
+    num_epochs=100,
+    early_stopping=None,
+):
     train_losses = []
 
     for epoch in tqdm(range(num_epochs)):
         model.train()
         parameter_net.train()
-        
+
         train_loss = 0.0
 
         t = time_stamps.to(device).float()
@@ -499,11 +597,11 @@ def train_model(model, parameter_net, optimizer, scheduler, time_stamps, data_sc
         optimizer.step()
 
         train_loss = loss.item()
-        
+
         train_losses.append(train_loss)
 
         scheduler.step(train_loss)
-        
+
         if (epoch + 1) % 1000 == 0 or epoch == 0:
             print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {train_loss:.6f}")
 
@@ -520,28 +618,44 @@ def train_model(model, parameter_net, optimizer, scheduler, time_stamps, data_sc
 scaled_data, scaler = scale_data(data, features, device)
 
 # Initialize model, optimizer, and scheduler
-model = EpiNet(num_layers=5, hidden_neurons= 32, output_size=8).to(device)
+model = EpiNet(num_layers=5, hidden_neurons=32, output_size=8).to(device)
 parameter_net = ParameterNet(num_layers=5, hidden_neurons=32).to(device)
-optimizer = optim.Adam(list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4)
+optimizer = optim.Adam(
+    list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4
+)
 scheduler = StepLR(optimizer, step_size=10000, gamma=0.9)
 
 # Early stopping
 early_stopping = EarlyStopping(patience=100, verbose=True)
 
 # Create timestamps tensor
-time_stamps = torch.tensor(data.index.values, dtype=torch.float32).view(-1, 1).to(device).requires_grad_()
+time_stamps = (
+    torch.tensor(data.index.values, dtype=torch.float32)
+    .view(-1, 1)
+    .to(device)
+    .requires_grad_()
+)
 
 # Train the model
-train_losses = train_model(model, parameter_net, optimizer, scheduler, time_stamps, scaled_data, num_epochs=50000, early_stopping=early_stopping)
+train_losses = train_model(
+    model,
+    parameter_net,
+    optimizer,
+    scheduler,
+    time_stamps,
+    scaled_data,
+    num_epochs=50000,
+    early_stopping=early_stopping,
+)
 
 # Plot training loss
-plt.plot(train_losses, label='Train Loss')
-plt.xlabel('Epoch')
-plt.yscale('log')
-plt.ylabel('Loss')
-plt.title('Training Loss over Epochs')
+plt.plot(train_losses, label="Train Loss")
+plt.xlabel("Epoch")
+plt.yscale("log")
+plt.ylabel("Loss")
+plt.title("Training Loss over Epochs")
 plt.legend()
-plt.savefig('../../reports/figures/training_loss.pdf')
+plt.savefig("../../reports/figures/training_loss.pdf")
 plt.show()
 
 # Save the trained model
@@ -555,21 +669,23 @@ def plot_outputs(model, parameter_net, data, device, scaler):
     parameter_net.eval()
 
     with torch.no_grad():
-        time_stamps = torch.tensor(data.index.values, dtype=torch.float32).view(-1, 1).to(device)
+        time_stamps = (
+            torch.tensor(data.index.values, dtype=torch.float32).view(-1, 1).to(device)
+        )
         model_output = model(time_stamps)
         parameters = parameter_net.get_parameters(time_stamps)
 
     # Extract only the observed outputs (columns 2, 4, 5, 7) for inverse scaling
     observed_model_output = pd.DataFrame(
         {
-            "daily_confirmed": model_output[:, 2].cpu().numpy(),
-            "daily_hospitalized": model_output[:, 4].cpu().numpy(),
+            "new_confirmed": model_output[:, 2].cpu().numpy(),
+            "newAdmissions": model_output[:, 4].cpu().numpy(),
             "covidOccupiedMVBeds": model_output[:, 5].cpu().numpy(),
-            "daily_deceased": model_output[:, 7].cpu().numpy(),
+            "new_deceased": model_output[:, 7].cpu().numpy(),
         },
         index=data.index,
     )
-    
+
     observed_model_output_scaled = scaler.inverse_transform(observed_model_output)
 
     dates = data["date"]
@@ -577,91 +693,141 @@ def plot_outputs(model, parameter_net, data, device, scaler):
     # Plot observed vs. predicted outputs in a 1x4 grid
     fig, axs = plt.subplots(1, 4, figsize=(24, 6), sharex=True)
 
-    axs[0].plot(dates, data["daily_confirmed"], label="Observed Infections", color='blue')
-    axs[0].plot(dates, observed_model_output_scaled[:, 0], label="Predicted Infections", linestyle='--', color='red')
+    axs[0].plot(
+        dates, data["new_confirmed"], label="Observed Infections", color="blue"
+    )
+    axs[0].plot(
+        dates,
+        observed_model_output_scaled[:, 0],
+        label="Predicted Infections",
+        linestyle="--",
+        color="red",
+    )
     axs[0].set_ylabel("New Confirmed Cases")
 
-    axs[1].plot(dates, data["daily_hospitalized"], label="Observed Hospitalizations", color='blue')
-    axs[1].plot(dates, observed_model_output_scaled[:, 1], label="Predicted Hospitalizations", linestyle='--', color='red')
+    axs[1].plot(
+        dates,
+        data["newAdmissions"],
+        label="Observed Hospitalizations",
+        color="blue",
+    )
+    axs[1].plot(
+        dates,
+        observed_model_output_scaled[:, 1],
+        label="Predicted Hospitalizations",
+        linestyle="--",
+        color="red",
+    )
     axs[1].set_ylabel("New Admissions")
 
-    axs[2].plot(dates, data["covidOccupiedMVBeds"], label="Observed Critical", color='blue')
-    axs[2].plot(dates, observed_model_output_scaled[:, 2], label="Predicted Critical", linestyle='--', color='red')
+    axs[2].plot(
+        dates, data["covidOccupiedMVBeds"], label="Observed Critical", color="blue"
+    )
+    axs[2].plot(
+        dates,
+        observed_model_output_scaled[:, 2],
+        label="Predicted Critical",
+        linestyle="--",
+        color="red",
+    )
     axs[2].set_ylabel("Critical Cases")
 
-
-    axs[3].plot(dates, data["daily_deceased"], label="Observed Deaths", color='blue')
-    axs[3].plot(dates, observed_model_output_scaled[:, 3], label="Predicted Deaths", linestyle='--', color='red')
+    axs[3].plot(dates, data["new_deceased"], label="Observed Deaths", color="blue")
+    axs[3].plot(
+        dates,
+        observed_model_output_scaled[:, 3],
+        label="Predicted Deaths",
+        linestyle="--",
+        color="red",
+    )
     axs[3].set_ylabel("New Deaths")
 
     for ax in axs:
         ax.set_xlabel("Date")
-        ax.tick_params(axis='x', rotation=45)
-        
+        ax.tick_params(axis="x", rotation=45)
+
     plt.tight_layout()
     plt.legend()
-    plt.savefig('../../reports/figures/observed_vs_predicted.pdf')
+    plt.savefig("../../reports/figures/observed_vs_predicted.pdf")
     plt.show()
 
     # Plot unobserved outputs in a 1x4 grid
     fig, axs = plt.subplots(1, 4, figsize=(24, 6), sharex=True)
 
-    axs[0].plot(dates, model_output[:, 0].cpu(), label="Susceptible", color='green')
+    axs[0].plot(dates, model_output[:, 0].cpu(), label="Susceptible", color="green")
     axs[0].set_ylabel("Susceptible")
 
-    axs[1].plot(dates, model_output[:, 1].cpu(), label="Exposed", color='green')
+    axs[1].plot(dates, model_output[:, 1].cpu(), label="Exposed", color="green")
     axs[1].set_ylabel("Exposed")
 
-    axs[2].plot(dates, model_output[:, 3].cpu(), label="Asymptomatic Infected", color='green')
+    axs[2].plot(
+        dates, model_output[:, 3].cpu(), label="Asymptomatic Infected", color="green"
+    )
     axs[2].set_ylabel("Asymptomatic Infected")
 
-    axs[3].plot(dates, model_output[:, 6].cpu(), label="Recovered", color='green')
+    axs[3].plot(dates, model_output[:, 6].cpu(), label="Recovered", color="green")
     axs[3].set_ylabel("Recovered")
 
     for ax in axs:
         ax.set_xlabel("Date")
-        ax.tick_params(axis='x', rotation=45)
-        
+        ax.tick_params(axis="x", rotation=45)
+
     plt.tight_layout()
-    plt.savefig('../../reports/figures/unobserved_outputs.pdf')
+    plt.savefig("../../reports/figures/unobserved_outputs.pdf")
     plt.show()
 
     # Plot time-varying parameters in a 2 * 3 grid
     fig, axs = plt.subplots(2, 3, figsize=(18, 10), sharex=True)
     parameters_np = [p.cpu().numpy() for p in parameters]
 
-    axs[0, 0].plot(dates, parameters_np[0], label="Beta (Infection rate)", color='purple')
+    axs[0, 0].plot(
+        dates, parameters_np[0], label="Beta (Infection rate)", color="purple"
+    )
     axs[0, 0].set_ylabel("Beta")
     axs[0, 0].legend()
 
-    axs[0, 1].plot(dates, parameters_np[1], label="Omega (Symptomatic proportion)", color='purple')
+    axs[0, 1].plot(
+        dates, parameters_np[1], label="Omega (Symptomatic proportion)", color="purple"
+    )
     axs[0, 1].set_ylabel("Omega")
     axs[0, 1].legend()
 
-    axs[0, 2].plot(dates, parameters_np[2], label="Mu (Mortality rate)", color='purple')
+    axs[0, 2].plot(dates, parameters_np[2], label="Mu (Mortality rate)", color="purple")
     axs[0, 2].set_ylabel("Mu")
     axs[0, 2].legend()
 
-    axs[1, 0].plot(dates, parameters_np[3], label="Gamma_c (Critical recovery rate)", color='purple')
+    axs[1, 0].plot(
+        dates,
+        parameters_np[3],
+        label="Gamma_c (Critical recovery rate)",
+        color="purple",
+    )
     axs[1, 0].set_ylabel("Gamma_c")
     axs[1, 0].legend()
 
-    axs[1, 1].plot(dates, parameters_np[4], label="Delta_c (Critical mortality rate)", color='purple')
+    axs[1, 1].plot(
+        dates,
+        parameters_np[4],
+        label="Delta_c (Critical mortality rate)",
+        color="purple",
+    )
     axs[1, 1].set_ylabel("Delta_c")
     axs[1, 1].legend()
 
-    axs[1, 2].plot(dates, parameters_np[5], label="Eta (Reinfection rate)", color='purple')
+    axs[1, 2].plot(
+        dates, parameters_np[5], label="Eta (Reinfection rate)", color="purple"
+    )
     axs[1, 2].set_ylabel("Eta")
     axs[1, 2].legend()
 
-
     for ax in axs.flat:
         ax.set_xlabel("Date")
-        ax.tick_params(axis='x', rotation=45)
-        
+        ax.tick_params(axis="x", rotation=45)
+
     plt.tight_layout()
-    plt.savefig('../../reports/figures/time_varying_parameters.pdf')
+    plt.savefig("../../reports/figures/time_varying_parameters.pdf")
     plt.show()
+
 
 # Plot the outputs and parameters
 plot_outputs(model, parameter_net, data, device, scaler)
