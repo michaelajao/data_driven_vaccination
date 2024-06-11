@@ -315,7 +315,7 @@ features = [
     "daily_confirmed",
     "daily_hospitalized",
     "covidOccupiedMVBeds",
-    "daily_deceased"
+    "daily_deceased",
 ]
 
 # Split and scale the data
@@ -368,7 +368,7 @@ class ParameterNet(nn.Module):
         for _ in range(num_layers - 1):
             layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
 
-        layers.append(nn.Linear(hidden_neurons, 6))
+        layers.append(nn.Linear(hidden_neurons, 4))
         self.net = nn.Sequential(*layers)
 
         self.init_xavier()
@@ -379,11 +379,11 @@ class ParameterNet(nn.Module):
     def get_parameters(self, t):
         raw_parameters = self.net(t)
 
-        # Apply the sigmoid function to ensure the parameters are in the correct range
-        beta = torch.sigmoid(raw_parameters[:, 0]) * 0.5 
-        gamma_c = torch.sigmoid(raw_parameters[:, 1]) * 0.05
-        delta_c = torch.sigmoid(raw_parameters[:, 2]) * 0.02
-        eta = torch.sigmoid(raw_parameters[:, 3]) * 0.05
+        # Apply the sigmoid function followed by a linear transformation
+        beta = 0.2 + torch.sigmoid(raw_parameters[:, 0]) * 0.3 
+        gamma_c = 0.03 + torch.sigmoid(raw_parameters[:, 1]) * 0.05 
+        delta_c = 0.1 + torch.sigmoid(raw_parameters[:, 2]) * 0.15
+        eta = 0.0 + torch.sigmoid(raw_parameters[:, 3]) * 0.05 
 
         return beta, gamma_c, delta_c, eta
 
@@ -397,6 +397,7 @@ class ParameterNet(nn.Module):
 
         # Apply the weight initialization to the network
         self.net.apply(init_weights)
+
 
 
 def einn_loss(model_output, tensor_data, parameters, t):
@@ -430,9 +431,8 @@ def einn_loss(model_output, tensor_data, parameters, t):
     ds = 1 / 4  # Infectious period for symptomatic (4 days)
     da = 1 / 7  # Infectious period for asymptomatic (7 days)
     dH = 1 / 13.4  # Hospitalization days (13.4 days)
-    omega = 0.50   # Proportion of symptomatic cases requiring hospitalization (50%)
-    mu = 0.05 # Mortality rate (5%)
-    
+    omega = 0.50  # Proportion of symptomatic cases requiring hospitalization (50%)
+    mu = 0.05  # Mortality rate (5%)
 
     # Learned parameters
     beta_pred, gamma_c_pred, delta_c_pred, eta_pred = parameters
@@ -619,7 +619,7 @@ def train_model(
 scaled_data, scaler = scale_data(data, features, device)
 
 # Initialize model, optimizer, and scheduler
-model = EpiNet(num_layers=6, hidden_neurons=20, output_size=8).to(device)
+model = EpiNet(num_layers=5, hidden_neurons=20, output_size=8).to(device)
 parameter_net = ParameterNet(num_layers=1, hidden_neurons=20).to(device)
 optimizer = optim.Adam(
     list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4
@@ -631,10 +631,10 @@ early_stopping = EarlyStopping(patience=100, verbose=False)
 
 # Create timestamps tensor
 time_stamps = (
-    torch.tensor(data.index.values, dtype=torch.float32)
+    torch.tensor(np.arange(1, len(data) + 1), dtype=torch.float32)
     .view(-1, 1)
     .to(device)
-    .requires_grad_()
+    .requires_grad_(True)
 )
 
 # Train the model
@@ -665,14 +665,12 @@ torch.save(parameter_net.state_dict(), "../../models/parameter_net.pth")
 
 
 # plot the outputs
-def plot_outputs(model, parameter_net, data, device, scaler):
+def plot_outputs(model, t, parameter_net, data, device, scaler):
     model.eval()
     parameter_net.eval()
 
     with torch.no_grad():
-        time_stamps = (
-            torch.tensor(data.index.values, dtype=torch.float32).view(-1, 1).to(device)
-        )
+        time_stamps = t
         model_output = model(time_stamps)
         parameters = parameter_net.get_parameters(time_stamps)
 
@@ -757,19 +755,19 @@ def plot_outputs(model, parameter_net, data, device, scaler):
 
     axs[0].plot(dates, model_output[:, 0].cpu(), label="Susceptible", color="green")
     axs[0].set_ylabel("Susceptible")
-    
+
     axs[1].plot(dates, model_output[:, 1].cpu(), label="Exposed", color="green")
     axs[1].set_ylabel("Exposed")
-    
+
     axs[2].plot(dates, model_output[:, 3].cpu(), label="Asymptomatic", color="green")
     axs[2].set_ylabel("Asymptomatic")
-    
+
     axs[3].plot(dates, model_output[:, 6].cpu(), label="Recovered", color="green")
     axs[3].set_ylabel("Recovered")
-    
+
     # axs[4].plot(dates, model_output[:, 7].cpu(), label="Deceased", color="green")
     # axs[4].set_ylabel("Deceased")
-    
+
     for ax in axs:
         ax.set_xlabel("Date")
         ax.tick_params(axis="x", rotation=45)
@@ -781,16 +779,16 @@ def plot_outputs(model, parameter_net, data, device, scaler):
     # Plot time-varying parameters in a 2 * 3 grid
     fig, axs = plt.subplots(1, 4, figsize=(24, 6), sharex=True)
     parameters_np = [p.cpu().numpy() for p in parameters]
-    
+
     axs[0].plot(dates, parameters_np[0], label="Beta", color="purple")
     axs[0].set_ylabel("Beta")
-    
+
     axs[1].plot(dates, parameters_np[1], label="Gamma_c", color="purple")
     axs[1].set_ylabel("Gamma_c")
-    
+
     axs[2].plot(dates, parameters_np[2], label="Delta_c", color="purple")
     axs[2].set_ylabel("Delta_c")
-    
+
     axs[3].plot(dates, parameters_np[3], label="Eta", color="purple")
     axs[3].set_ylabel("Eta")
 
@@ -804,4 +802,4 @@ def plot_outputs(model, parameter_net, data, device, scaler):
 
 
 # Plot the outputs and parameters
-plot_outputs(model, parameter_net, data, device, scaler)
+plot_outputs(model, time_stamps, parameter_net, data, device, scaler)
