@@ -263,10 +263,10 @@ data = load_and_preprocess_data(
 # Print the columns to ensure the required columns are created
 print("DataFrame columns:", data.columns)
 
-plt.plot(data["date"], data["new_deceased"])
-plt.title("New Deceased over time")
+plt.plot(data["date"], data["newAdmissions"])
+plt.title("newAdmissions over time")
 plt.xlabel("Date")
-plt.ylabel("New Deceased")
+plt.ylabel("newAdmissions")
 plt.xticks(rotation=45)
 plt.tight_layout()
 plt.show()
@@ -289,12 +289,12 @@ def prepare_tensors(data, device):
         .view(-1, 1)
         .to(device)
     )
-    D = (
-        torch.tensor(data["new_deceased"].values, dtype=torch.float32)
-        .view(-1, 1)
-        .to(device)
-    )
-    return I, H, C, D
+    # D = (
+    #     torch.tensor(data["new_deceased"].values, dtype=torch.float32)
+    #     .view(-1, 1)
+    #     .to(device)
+    # )
+    return I, H, C
 
 
 def scale_data(data, features, device):
@@ -315,7 +315,6 @@ features = [
     "new_confirmed",
     "newAdmissions",
     "covidOccupiedMVBeds",
-    "new_deceased",
 ]
 
 # Split and scale the data
@@ -419,11 +418,10 @@ def einn_loss(model_output, tensor_data, parameters, t):
     # Normalize the data
     N = 1
 
-    Is_data, H_data, C_data, D_data = (
+    Is_data, H_data, C_data = (
         tensor_data[:, 0],
         tensor_data[:, 1],
         tensor_data[:, 2],
-        tensor_data[:, 3],
     )
 
     # Constants based on the table provided
@@ -516,7 +514,6 @@ def einn_loss(model_output, tensor_data, parameters, t):
         torch.mean((Is_pred - Is_data) ** 2)
         + torch.mean((H_pred - H_data) ** 2)
         + torch.mean((C_pred - C_data) ** 2)
-        + torch.mean((D_pred - D_data) ** 2)
     )
 
     residual_loss = (
@@ -681,7 +678,6 @@ def plot_outputs(model, parameter_net, data, device, scaler):
             "new_confirmed": model_output[:, 2].cpu().numpy(),
             "newAdmissions": model_output[:, 4].cpu().numpy(),
             "covidOccupiedMVBeds": model_output[:, 5].cpu().numpy(),
-            "new_deceased": model_output[:, 7].cpu().numpy(),
         },
         index=data.index,
     )
@@ -691,7 +687,7 @@ def plot_outputs(model, parameter_net, data, device, scaler):
     dates = data["date"]
 
     # Plot observed vs. predicted outputs in a 1x4 grid
-    fig, axs = plt.subplots(1, 4, figsize=(24, 6), sharex=True)
+    fig, axs = plt.subplots(1, 3, figsize=(24, 6), sharex=True)
 
     axs[0].plot(
         dates, data["new_confirmed"], label="Observed Infections", color="blue"
@@ -732,15 +728,15 @@ def plot_outputs(model, parameter_net, data, device, scaler):
     )
     axs[2].set_ylabel("Critical Cases")
 
-    axs[3].plot(dates, data["new_deceased"], label="Observed Deaths", color="blue")
-    axs[3].plot(
-        dates,
-        observed_model_output_scaled[:, 3],
-        label="Predicted Deaths",
-        linestyle="--",
-        color="red",
-    )
-    axs[3].set_ylabel("New Deaths")
+    # axs[3].plot(dates, data["new_deceased"], label="Observed Deaths", color="blue")
+    # axs[3].plot(
+    #     dates,
+    #     observed_model_output_scaled[:, 3],
+    #     label="Predicted Deaths",
+    #     linestyle="--",
+    #     color="red",
+    # )
+    # axs[3].set_ylabel("New Deaths")
 
     for ax in axs:
         ax.set_xlabel("Date")
@@ -752,7 +748,7 @@ def plot_outputs(model, parameter_net, data, device, scaler):
     plt.show()
 
     # Plot unobserved outputs in a 1x4 grid
-    fig, axs = plt.subplots(1, 4, figsize=(24, 6), sharex=True)
+    fig, axs = plt.subplots(1, 5, figsize=(26, 6), sharex=True)
 
     axs[0].plot(dates, model_output[:, 0].cpu(), label="Susceptible", color="green")
     axs[0].set_ylabel("Susceptible")
@@ -767,6 +763,9 @@ def plot_outputs(model, parameter_net, data, device, scaler):
 
     axs[3].plot(dates, model_output[:, 6].cpu(), label="Recovered", color="green")
     axs[3].set_ylabel("Recovered")
+    
+    axs[4].plot(dates, model_output[:, 7].cpu(), label="Dead", color="green")
+    axs[4].set_ylabel("Dead")
 
     for ax in axs:
         ax.set_xlabel("Date")
