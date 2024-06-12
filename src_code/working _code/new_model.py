@@ -11,7 +11,7 @@ import torch.nn as nn
 from torch.autograd import grad
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import (
     mean_absolute_error,
     mean_squared_error,
@@ -177,33 +177,6 @@ def seird_model(
     return [dSdt, dEdt, dIsdt, dIadt, dHdt, dCdt, dRdt, dDdt]
 
 
-# def load_preprocess_data(
-#     filepath, areaname, recovery_period=16, rolling_window=7, end_date=None
-# ):
-#     """Load and preprocess the COVID-19 data."""
-#     df = pd.read_csv(filepath)
-
-#     # Convert the date column to datetime
-#     df["date"] = pd.to_datetime(df["date"])
-
-#     # Select data up to the end_date
-#     if end_date:
-#         df = df[df["date"] <= end_date]
-
-#     cols_to_smooth = [
-#         "cumulative_confirmed",
-#         "cumulative_deceased",
-#         "hospitalCases",
-#         "covidOccupiedMVBeds",
-#         "new_deceased",
-#         "new_confirmed",
-#         "newAdmissions",
-#     ]
-#     for col in cols_to_smooth:
-#         df[col] = df[col].rolling(window=rolling_window, min_periods=1).mean().fillna(0)
-
-#     return df
-
 
 def load_and_preprocess_data(
     filepath, areaname, rolling_window=7, start_date="2020-04-01", end_date="2021-08-31"
@@ -258,18 +231,6 @@ data = load_and_preprocess_data(
     start_date="2020-01-01",
     end_date="2021-12-31",
 )
-
-
-# Print the columns to ensure the required columns are created
-print("DataFrame columns:", data.columns)
-
-# plt.plot(data["date"], data["newAdmissions"])
-# plt.title("newAdmissions over time")
-# plt.xlabel("Date")
-# plt.ylabel("newAdmissions")
-# plt.xticks(rotation=45)
-# plt.tight_layout()
-# plt.show()
 
 
 def prepare_tensors(data, device):
@@ -368,7 +329,7 @@ class ParameterNet(nn.Module):
         for _ in range(num_layers - 1):
             layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
 
-        layers.append(nn.Linear(hidden_neurons, 4))
+        layers.append(nn.Linear(hidden_neurons, 5))
         self.net = nn.Sequential(*layers)
 
         self.init_xavier()
@@ -380,12 +341,13 @@ class ParameterNet(nn.Module):
         raw_parameters = self.net(t)
 
         # Apply the sigmoid function followed by a linear transformation
-        beta = 0.2 + torch.sigmoid(raw_parameters[:, 0])
-        gamma_c = 0.03 + torch.sigmoid(raw_parameters[:, 1]) 
-        delta_c = 0.1 + torch.sigmoid(raw_parameters[:, 2]) 
-        eta = 0.0 + torch.sigmoid(raw_parameters[:, 3])
+        beta = torch.sigmoid(raw_parameters[:, 0])
+        gamma_c = torch.sigmoid(raw_parameters[:, 1]) 
+        delta_c = torch.sigmoid(raw_parameters[:, 2]) 
+        eta = torch.sigmoid(raw_parameters[:, 3])
+        mu = torch.sigmoid(raw_parameters[:, 4])
 
-        return beta, gamma_c, delta_c, eta
+        return beta, gamma_c, delta_c, eta, mu
 
     def init_xavier(self):
         def init_weights(layer):
@@ -397,6 +359,7 @@ class ParameterNet(nn.Module):
 
         # Apply the weight initialization to the network
         self.net.apply(init_weights)
+
 
 
 
@@ -432,10 +395,10 @@ def einn_loss(model_output, tensor_data, parameters, t):
     da = 1 / 7  # Infectious period for asymptomatic (7 days)
     dH = 1 / 13.4  # Hospitalization days (13.4 days)
     omega = 0.50  # Proportion of symptomatic cases requiring hospitalization (50%)
-    mu = 0.05  # Mortality rate (5%)
+    # mu = 0.05  # Mortality rate (5%)
 
     # Learned parameters
-    beta_pred, gamma_c_pred, delta_c_pred, eta_pred = parameters
+    beta_pred, gamma_c_pred, delta_c_pred, eta_pred, mu = parameters
 
     # Compute the differential equations
     S_t = grad(
@@ -616,27 +579,28 @@ def train_model(
     return train_losses
 
 
+
 scaled_data, scaler = scale_data(data, features, device)
 
 # Initialize model, optimizer, and scheduler
-model = EpiNet(num_layers=6, hidden_neurons=20, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=5, hidden_neurons=20).to(device)
+model = EpiNet(num_layers=5, hidden_neurons=32, output_size=8).to(device)
+parameter_net = ParameterNet(num_layers=1, hidden_neurons=32).to(device)
 optimizer = optim.Adam(
-    list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4
+    list(model.parameters()) + list(parameter_net.parameters()), lr=2e-4
 )
 scheduler = StepLR(optimizer, step_size=5000, gamma=0.9)
 
 # Early stopping
-early_stopping = EarlyStopping(patience=100, verbose=False)
+early_stopping = EarlyStopping(patience=200, verbose=False)
 
 # Create timestamps tensor
+# time_stamps = torch.tensor(np.arange(1, len(data) + 1), dtype=torch.float32).view(-1, 1).to(device).requires_grad_(True)
 time_stamps = (
-    torch.tensor(np.arange(1, len(data) + 1), dtype=torch.float32)
+    torch.tensor(data.index.values, dtype=torch.float32)
     .view(-1, 1)
     .to(device)
-    .requires_grad_(True)
+    .requires_grad_()
 )
-
 # Train the model
 train_losses = train_model(
     model,
@@ -664,7 +628,6 @@ torch.save(model.state_dict(), "../../models/epinet_model.pth")
 torch.save(parameter_net.state_dict(), "../../models/parameter_net.pth")
 
 
-# plot the outputs
 def plot_outputs(model, t, parameter_net, data, device, scaler):
     model.eval()
     parameter_net.eval()
@@ -674,7 +637,6 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
         model_output = model(time_stamps)
         parameters = parameter_net.get_parameters(time_stamps)
 
-    # Extract only the observed outputs (columns 2, 4, 5, 7) for inverse scaling
     observed_model_output = pd.DataFrame(
         {
             "daily_confirmed": model_output[:, 2].cpu().numpy(),
@@ -686,59 +648,23 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
     )
 
     observed_model_output_scaled = scaler.inverse_transform(observed_model_output)
-
     dates = data["date"]
 
-    # Plot observed vs. predicted outputs in a 1x4 grid
     fig, axs = plt.subplots(1, 4, figsize=(24, 6), sharex=True)
-
-    axs[0].plot(
-        dates, data["daily_confirmed"], label="Observed Infections", color="blue"
-    )
-    axs[0].plot(
-        dates,
-        observed_model_output_scaled[:, 0],
-        label="Predicted Infections",
-        linestyle="--",
-        color="red",
-    )
+    axs[0].plot(dates, data["daily_confirmed"], label="Observed Infections", color="blue")
+    axs[0].plot(dates, observed_model_output_scaled[:, 0], label="Predicted Infections", linestyle="--", color="red")
     axs[0].set_ylabel("New Confirmed Cases")
 
-    axs[1].plot(
-        dates,
-        data["daily_hospitalized"],
-        label="Observed Hospitalizations",
-        color="blue",
-    )
-    axs[1].plot(
-        dates,
-        observed_model_output_scaled[:, 1],
-        label="Predicted Hospitalizations",
-        linestyle="--",
-        color="red",
-    )
+    axs[1].plot(dates, data["daily_hospitalized"], label="Observed Hospitalizations", color="blue")
+    axs[1].plot(dates, observed_model_output_scaled[:, 1], label="Predicted Hospitalizations", linestyle="--", color="red")
     axs[1].set_ylabel("New Admissions")
 
-    axs[2].plot(
-        dates, data["covidOccupiedMVBeds"], label="Observed Critical", color="blue"
-    )
-    axs[2].plot(
-        dates,
-        observed_model_output_scaled[:, 2],
-        label="Predicted Critical",
-        linestyle="--",
-        color="red",
-    )
+    axs[2].plot(dates, data["covidOccupiedMVBeds"], label="Observed Critical", color="blue")
+    axs[2].plot(dates, observed_model_output_scaled[:, 2], label="Predicted Critical", linestyle="--", color="red")
     axs[2].set_ylabel("Critical Cases")
 
     axs[3].plot(dates, data["daily_deceased"], label="Observed Deaths", color="blue")
-    axs[3].plot(
-        dates,
-        observed_model_output_scaled[:, 3],
-        label="Predicted Deaths",
-        linestyle="--",
-        color="red",
-    )
+    axs[3].plot(dates, observed_model_output_scaled[:, 3], label="Predicted Deaths", linestyle="--", color="red")
     axs[3].set_ylabel("New Deaths")
 
     for ax in axs:
@@ -750,9 +676,7 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
     plt.savefig("../../reports/figures/observed_vs_predicted.pdf")
     plt.show()
 
-    # Plot unobserved outputs in a 1x4 grid
     fig, axs = plt.subplots(1, 4, figsize=(24, 6), sharex=True)
-
     axs[0].plot(dates, model_output[:, 0].cpu(), label="Susceptible", color="green")
     axs[0].set_ylabel("Susceptible")
 
@@ -765,9 +689,6 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
     axs[3].plot(dates, model_output[:, 6].cpu(), label="Recovered", color="green")
     axs[3].set_ylabel("Recovered")
 
-    # axs[4].plot(dates, model_output[:, 7].cpu(), label="Deceased", color="green")
-    # axs[4].set_ylabel("Deceased")
-
     for ax in axs:
         ax.set_xlabel("Date")
         ax.tick_params(axis="x", rotation=45)
@@ -776,8 +697,7 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
     plt.savefig("../../reports/figures/unobserved_outputs.pdf")
     plt.show()
 
-    # Plot time-varying parameters in a 2 * 3 grid
-    fig, axs = plt.subplots(1, 4, figsize=(24, 6), sharex=True)
+    fig, axs = plt.subplots(1, 5, figsize=(28, 6), sharex=True)
     parameters_np = [p.cpu().numpy() for p in parameters]
 
     axs[0].plot(dates, parameters_np[0], label="Beta", color="purple")
@@ -791,6 +711,9 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
 
     axs[3].plot(dates, parameters_np[3], label="Eta", color="purple")
     axs[3].set_ylabel("Eta")
+    
+    axs[4].plot(dates, parameters_np[4], label="Mu", color="purple")
+    axs[4].set_ylabel("Mu")
 
     for ax in axs.flat:
         ax.set_xlabel("Date")
@@ -800,6 +723,60 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
     plt.savefig("../../reports/figures/time_varying_parameters.pdf")
     plt.show()
 
+    return parameters_np
 
-# Plot the outputs and parameters
-plot_outputs(model, time_stamps, parameter_net, data, device, scaler)
+parameters_np = plot_outputs(model, time_stamps, parameter_net, data, device, scaler)
+
+# Calculate R_t and R_c
+beta, gamma_c, delta_c, eta, mu = parameters_np
+
+def calculate_R_t(beta, gamma_c, delta_c, eta, mu, S, N, alpha, rho, ds, da):
+    return beta * S / N * (1 / alpha + rho / ds + (1 - rho) / da)
+
+# Calculate R_t and R_c over time
+N = data['population'].values[0]
+S = model_output[:, 0].cpu().numpy()
+R_t = calculate_R_t(beta, gamma_c, delta_c, eta, mu, S, N, 1/5, 0.80, 1/4, 1/7)
+
+plt.plot(dates, R_t, label="R_t")
+plt.xlabel("Date")
+plt.ylabel("R_t")
+plt.title("R_t over Time")
+plt.legend()
+plt.savefig("../../reports/figures/R_t.pdf")
+plt.show()
+
+# Evaluate model effectiveness
+def evaluate_model(actual, predicted):
+    mape = mean_absolute_percentage_error(actual, predicted)
+    nrmse = normalized_root_mean_square_error(actual, predicted)
+    mase = safe_mean_absolute_scaled_error(actual, predicted, actual)
+    rmse = np.sqrt(mean_squared_error(actual, predicted))
+    mae = mean_absolute_error(actual, predicted)
+    mse = mean_squared_error(actual, predicted)
+
+    print(f"Mean Absolute Percentage Error (MAPE): {mape:.2f}%")
+    print(f"Normalized Root Mean Square Error (NRMSE): {nrmse:.4f}")
+    print(f"Mean Absolute Scaled Error (MASE): {mase:.4f}")
+    print(f"Root Mean Square Error (RMSE): {rmse:.4f}")
+    print(f"Mean Absolute Error (MAE): {mae:.4f}")
+    print(f"Mean Squared Error (MSE): {mse:.4f}")
+
+    return mape, nrmse, mase, rmse, mae, mse
+
+# Evaluate on all states
+actual_confirmed = data["daily_confirmed"].values
+predicted_confirmed = observed_model_output_scaled[:, 0]
+evaluate_model(actual_confirmed, predicted_confirmed)
+
+actual_hospitalized = data["daily_hospitalized"].values
+predicted_hospitalized = observed_model_output_scaled[:, 1]
+evaluate_model(actual_hospitalized, predicted_hospitalized)
+
+actual_critical = data["covidOccupiedMVBeds"].values
+predicted_critical = observed_model_output_scaled[:, 2]
+evaluate_model(actual_critical, predicted_critical)
+
+actual_deceased = data["daily_deceased"].values
+predicted_deceased = observed_model_output_scaled[:, 3]
+evaluate_model(actual_deceased, predicted_deceased)
