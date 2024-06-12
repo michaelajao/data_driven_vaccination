@@ -73,7 +73,7 @@ plt.rcParams.update(
         "font.family": "serif",
         "font.size": 14,
         "figure.figsize": [8, 5],
-        "text.usetex": True,
+        "text.usetex": False,
         "figure.facecolor": "white",
         "figure.autolayout": True,
         "figure.dpi": 600,
@@ -380,10 +380,10 @@ class ParameterNet(nn.Module):
         raw_parameters = self.net(t)
 
         # Apply the sigmoid function followed by a linear transformation
-        beta = 0.2 + torch.sigmoid(raw_parameters[:, 0]) * 0.3 
-        gamma_c = 0.03 + torch.sigmoid(raw_parameters[:, 1]) * 0.05 
-        delta_c = 0.1 + torch.sigmoid(raw_parameters[:, 2]) * 0.15
-        eta = 0.0 + torch.sigmoid(raw_parameters[:, 3]) * 0.05 
+        beta = 0.2 + torch.sigmoid(raw_parameters[:, 0])
+        gamma_c = 0.03 + torch.sigmoid(raw_parameters[:, 1]) 
+        delta_c = 0.1 + torch.sigmoid(raw_parameters[:, 2]) 
+        eta = 0.0 + torch.sigmoid(raw_parameters[:, 3])
 
         return beta, gamma_c, delta_c, eta
 
@@ -619,8 +619,8 @@ def train_model(
 scaled_data, scaler = scale_data(data, features, device)
 
 # Initialize model, optimizer, and scheduler
-model = EpiNet(num_layers=5, hidden_neurons=20, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=1, hidden_neurons=20).to(device)
+model = EpiNet(num_layers=6, hidden_neurons=20, output_size=8).to(device)
+parameter_net = ParameterNet(num_layers=4, hidden_neurons=20).to(device)
 optimizer = optim.Adam(
     list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4
 )
