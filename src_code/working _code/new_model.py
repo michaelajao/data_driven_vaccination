@@ -364,139 +364,58 @@ class ParameterNet(nn.Module):
 
 
 def einn_loss(model_output, tensor_data, parameters, t):
-    """Compute the loss function for the EINN model with L2 regularization."""
-
-    # Split the model output into the different compartments
     S_pred, E_pred, Is_pred, Ia_pred, H_pred, C_pred, R_pred, D_pred = (
-        model_output[:, 0],
-        model_output[:, 1],
-        model_output[:, 2],
-        model_output[:, 3],
-        model_output[:, 4],
-        model_output[:, 5],
-        model_output[:, 6],
-        model_output[:, 7],
+        model_output[:, 0], model_output[:, 1], model_output[:, 2], model_output[:, 3],
+        model_output[:, 4], model_output[:, 5], model_output[:, 6], model_output[:, 7]
     )
 
-    # Normalize the data
+    Is_data, H_data, C_data, D_data = tensor_data[:, 0], tensor_data[:, 1], tensor_data[:, 2], tensor_data[:, 3]
+
     N = 1
+    rho = 0.80
+    alpha = 1 / 5
+    ds = 1 / 4
+    da = 1 / 7
+    dH = 1 / 13.4
+    omega = 0.50
 
-    Is_data, H_data, C_data, D_data = (
-        tensor_data[:, 0],
-        tensor_data[:, 1],
-        tensor_data[:, 2],
-        tensor_data[:, 3],
-    )
-
-    # Constants based on the table provided
-    rho = 0.80  # Proportion of symptomatic infections (80%)
-    alpha = 1 / 5  # Incubation period (5 days)
-    ds = 1 / 4  # Infectious period for symptomatic (4 days)
-    da = 1 / 7  # Infectious period for asymptomatic (7 days)
-    dH = 1 / 13.4  # Hospitalization days (13.4 days)
-    omega = 0.50  # Proportion of symptomatic cases requiring hospitalization (50%)
-    # mu = 0.05  # Mortality rate (5%)
-
-    # Learned parameters
     beta_pred, gamma_c_pred, delta_c_pred, eta_pred, mu = parameters
 
-    # Compute the differential equations
-    S_t = grad(
-        S_pred,
-        t,
-        grad_outputs=torch.ones_like(S_pred),
-        create_graph=True,
-        retain_graph=True,
-    )[0]
-    E_t = grad(
-        E_pred,
-        t,
-        grad_outputs=torch.ones_like(E_pred),
-        create_graph=True,
-        retain_graph=True,
-    )[0]
-    Ia_t = grad(
-        Ia_pred,
-        t,
-        grad_outputs=torch.ones_like(Ia_pred),
-        create_graph=True,
-        retain_graph=True,
-    )[0]
-    Is_t = grad(
-        Is_pred,
-        t,
-        grad_outputs=torch.ones_like(Is_pred),
-        create_graph=True,
-        retain_graph=True,
-    )[0]
-    H_t = grad(
-        H_pred,
-        t,
-        grad_outputs=torch.ones_like(H_pred),
-        create_graph=True,
-        retain_graph=True,
-    )[0]
-    C_t = grad(
-        C_pred,
-        t,
-        grad_outputs=torch.ones_like(C_pred),
-        create_graph=True,
-        retain_graph=True,
-    )[0]
-    R_t = grad(
-        R_pred,
-        t,
-        grad_outputs=torch.ones_like(R_pred),
-        create_graph=True,
-        retain_graph=True,
-    )[0]
-    D_t = grad(
-        D_pred,
-        t,
-        grad_outputs=torch.ones_like(D_pred),
-        create_graph=True,
-        retain_graph=True,
-    )[0]
+    S_t = grad(S_pred, t, grad_outputs=torch.ones_like(S_pred), create_graph=True, retain_graph=True)[0]
+    E_t = grad(E_pred, t, grad_outputs=torch.ones_like(E_pred), create_graph=True, retain_graph=True)[0]
+    Ia_t = grad(Ia_pred, t, grad_outputs=torch.ones_like(Ia_pred), create_graph=True, retain_graph=True)[0]
+    Is_t = grad(Is_pred, t, grad_outputs=torch.ones_like(Is_pred), create_graph=True, retain_graph=True)[0]
+    H_t = grad(H_pred, t, grad_outputs=torch.ones_like(H_pred), create_graph=True, retain_graph=True)[0]
+    C_t = grad(C_pred, t, grad_outputs=torch.ones_like(C_pred), create_graph=True, retain_graph=True)[0]
+    R_t = grad(R_pred, t, grad_outputs=torch.ones_like(R_pred), create_graph=True, retain_graph=True)[0]
+    D_t = grad(D_pred, t, grad_outputs=torch.ones_like(D_pred), create_graph=True, retain_graph=True)[0]
 
     dSdt, dEdt, dIadt, dIsdt, dHdt, dCdt, dRdt, dDdt = seird_model(
         [S_pred, E_pred, Is_pred, Ia_pred, H_pred, C_pred, R_pred, D_pred],
-        t,
-        N,
-        beta_pred,
-        alpha,
-        rho,
-        ds,
-        da,
-        omega,
-        dH,
-        mu,
-        gamma_c_pred,
-        delta_c_pred,
-        eta_pred,
+        t, N, beta_pred, alpha, rho, ds, da, omega, dH, mu, gamma_c_pred, delta_c_pred, eta_pred
     )
 
-    # Compute the loss function
     data_loss = (
-        torch.mean((Is_pred - Is_data) ** 2)
-        + torch.mean((H_pred - H_data) ** 2)
-        + torch.mean((C_pred - C_data) ** 2)
-        + torch.mean((D_pred - D_data) ** 2)
+        torch.mean((Is_pred - Is_data) ** 2) +
+        torch.mean((H_pred - H_data) ** 2) +
+        torch.mean((C_pred - C_data) ** 2) +
+        torch.mean((D_pred - D_data) ** 2)
     )
 
     residual_loss = (
-        torch.mean((S_t - dSdt) ** 2)
-        + torch.mean((E_t - dEdt) ** 2)
-        + torch.mean((Ia_t - dIadt) ** 2)
-        + torch.mean((Is_t - dIsdt) ** 2)
-        + torch.mean((H_t - dHdt) ** 2)
-        + torch.mean((C_t - dCdt) ** 2)
-        + torch.mean((R_t - dRdt) ** 2)
-        + torch.mean((D_t - dDdt) ** 2)
+        torch.mean((S_t - dSdt) ** 2) +
+        torch.mean((E_t - dEdt) ** 2) +
+        torch.mean((Ia_t - dIadt) ** 2) +
+        torch.mean((Is_t - dIsdt) ** 2) +
+        torch.mean((H_t - dHdt) ** 2) +
+        torch.mean((C_t - dCdt) ** 2) +
+        torch.mean((R_t - dRdt) ** 2) +
+        torch.mean((D_t - dDdt) ** 2)
     )
 
     loss = data_loss + residual_loss
-
     return loss
+
 
 
 class EarlyStopping:
@@ -528,7 +447,8 @@ class EarlyStopping:
 def train_model(
     model,
     parameter_net,
-    optimizer,
+    model_optimizer,
+    parameter_net_optimizer,
     scheduler,
     time_stamps,
     data_scaled,
@@ -547,7 +467,8 @@ def train_model(
         data = data_scaled.to(device).float()
 
         # Zero gradients
-        optimizer.zero_grad()
+        model_optimizer.zero_grad()
+        parameter_net_optimizer.zero_grad()
 
         # Forward pass
         model_output = model(t)
@@ -558,7 +479,8 @@ def train_model(
 
         # Backward pass and optimization
         loss.backward()
-        optimizer.step()
+        model_optimizer.step()
+        parameter_net_optimizer.step()
 
         train_loss = loss.item()
 
@@ -584,14 +506,21 @@ scaled_data, scaler = scale_data(data, features, device)
 
 # Initialize model, optimizer, and scheduler
 model = EpiNet(num_layers=5, hidden_neurons=32, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=1, hidden_neurons=32).to(device)
-optimizer = optim.Adam(
-    list(model.parameters()) + list(parameter_net.parameters()), lr=2e-4
-)
-scheduler = StepLR(optimizer, step_size=5000, gamma=0.9)
+parameter_net = ParameterNet(num_layers=2, hidden_neurons=32).to(device)
+# optimizer = optim.Adam(
+#     list(model.parameters()) + list(parameter_net.parameters()), lr=2e-4
+# )
+# scheduler = StepLR(optimizer, step_size=5000, gamma=0.9)
+
+model_optimizer = optim.Adam(model.parameters(), lr=1e-4)
+parameter_net_optimizer = optim.Adam(parameter_net.parameters(), lr=1e-4)
+optimizer = (model_optimizer, parameter_net_optimizer)
+scheduler = StepLR(model_optimizer, step_size=5000, gamma=0.9)
+
+
 
 # Early stopping
-early_stopping = EarlyStopping(patience=200, verbose=False)
+early_stopping = EarlyStopping(patience=100, verbose=False)
 
 # Create timestamps tensor
 # time_stamps = torch.tensor(np.arange(1, len(data) + 1), dtype=torch.float32).view(-1, 1).to(device).requires_grad_(True)
@@ -605,7 +534,8 @@ time_stamps = (
 train_losses = train_model(
     model,
     parameter_net,
-    optimizer,
+    model_optimizer,
+    parameter_net_optimizer,
     scheduler,
     time_stamps,
     scaled_data,
@@ -723,28 +653,53 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
     plt.savefig("../../reports/figures/time_varying_parameters.pdf")
     plt.show()
 
-    return parameters_np
+    return parameters_np, observed_model_output_scaled
 
-parameters_np = plot_outputs(model, time_stamps, parameter_net, data, device, scaler)
+parameters_np, observed_model_output_scaled = plot_outputs(model, time_stamps, parameter_net, data, device, scaler)
 
 # Calculate R_t and R_c
 beta, gamma_c, delta_c, eta, mu = parameters_np
 
 def calculate_R_t(beta, gamma_c, delta_c, eta, mu, S, N, alpha, rho, ds, da):
-    return beta * S / N * (1 / alpha + rho / ds + (1 - rho) / da)
+    return beta / (gamma_c + delta_c + eta + mu)
 
 # Calculate R_t and R_c over time
-N = data['population'].values[0]
-S = model_output[:, 0].cpu().numpy()
-R_t = calculate_R_t(beta, gamma_c, delta_c, eta, mu, S, N, 1/5, 0.80, 1/4, 1/7)
+S = observed_model_output_scaled[:, 0]
+N = 1
+alpha = 1 / 5
+rho = 0.80
+ds = 1 / 4
+da = 1 / 7
 
-plt.plot(dates, R_t, label="R_t")
-plt.xlabel("Date")
-plt.ylabel("R_t")
-plt.title("R_t over Time")
-plt.legend()
-plt.savefig("../../reports/figures/R_t.pdf")
+R_t = calculate_R_t(beta, gamma_c, delta_c, eta, mu, S, N, alpha, rho, ds, da)
+
+fig, ax = plt.subplots(figsize=(12, 6))
+ax.plot(data["date"], R_t, label="R_t", color="purple")
+ax.axhline(y=1, color="red", linestyle="--", label="R_t = 1")
+ax.set_xlabel("Date")
+ax.set_ylabel("R_t")
+ax.tick_params(axis="x", rotation=45)
+plt.tight_layout()
+# plt.savefig("../../reports/figures/R_t.pdf")
 plt.show()
+
+# Calculate the effective reproduction number
+def calculate_R_eff(beta, gamma_c, delta_c, eta, mu, S, N, alpha, rho, ds, da):
+    return beta * (rho * alpha * S + (1 - rho) * alpha * S) / (gamma_c + delta_c + eta + mu)
+
+# Calculate R_eff over time
+R_eff = calculate_R_eff(beta, gamma_c, delta_c, eta, mu, S, N, alpha, rho, ds, da)
+
+fig, ax = plt.subplots(figsize=(12, 6))
+ax.plot(data["date"], R_eff, label="R_eff", color="purple")
+ax.axhline(y=1, color="red", linestyle="--", label="R_eff = 1")
+ax.set_xlabel("Date")
+ax.set_ylabel("R_eff")
+ax.tick_params(axis="x", rotation=45)
+plt.tight_layout()
+# plt.savefig("../../reports/figures/R_eff.pdf")
+plt.show()
+
 
 # Evaluate model effectiveness
 def evaluate_model(actual, predicted):

@@ -105,7 +105,7 @@ def get_region_name_from_filepath(filepath):
     base = os.path.basename(filepath)
     return os.path.splitext(base)[0]
 
-df = load_and_preprocess_data("../../data/processed/england_data.csv", start_date="2020-05-01", end_date="2022-08-31")
+df = load_and_preprocess_data("../../data/processed/england_data.csv", start_date="2020-05-01", end_date="2020-12-31")
 
 # start_date = "2021-01-01"
 # end_date = "2021-08-31"
@@ -139,8 +139,8 @@ class ParamNet(nn.Module):
 
     def get_params(self, t):
         raw_params = self.forward(t)
-        beta = torch.sigmoid(raw_params[:, 0]) * 0.5
-        gamma = torch.sigmoid(raw_params[:, 1]) * 0.15
+        beta = torch.sigmoid(raw_params[:, 0])
+        gamma = torch.sigmoid(raw_params[:, 1])
         return beta, gamma
 
     def init_xavier(self):
@@ -409,7 +409,7 @@ def plot_E_pred(t, model, title):
 
 
 # Initialize the models
-param_model = ParamNet(output_size=2, num_layers=1, hidden_neurons=20).to(device)
+param_model = ParamNet(output_size=2, num_layers=2, hidden_neurons=20).to(device)
 sir_model = SIRNet(num_layers=5, hidden_neurons=20).to(device)
 
 # Train the models and collect losses
