@@ -584,7 +584,7 @@ scaled_data, scaler = scale_data(data, features, device)
 
 # Initialize model, optimizer, and scheduler
 model = EpiNet(num_layers=5, hidden_neurons=32, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=1, hidden_neurons=32).to(device)
+parameter_net = ParameterNet(num_layers=5, hidden_neurons=32).to(device)
 optimizer = optim.Adam(
     list(model.parameters()) + list(parameter_net.parameters()), lr=2e-4
 )
