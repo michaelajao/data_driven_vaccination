@@ -12,11 +12,8 @@ from torch.autograd import grad
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import (
-    mean_absolute_error,
-    mean_squared_error,
-    mean_absolute_percentage_error,
-)
+from sklearn.metrics import mean_absolute_error, mean_squared_error
+
 
 # Ensure necessary directories exist
 os.makedirs("../../models", exist_ok=True)
@@ -133,30 +130,18 @@ def safe_mean_absolute_scaled_error(y_true, y_pred, y_train, epsilon=1e-10):
 
 def calculate_errors(y_true, y_pred, y_train, areaname):
     """Calculate and print various error metrics."""
-    mape = mean_absolute_percentage_error(y_true, y_pred)
+
     nrmse = normalized_root_mean_square_error(y_true, y_pred)
     mase = safe_mean_absolute_scaled_error(y_true, y_pred, y_train)
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
     mae = mean_absolute_error(y_true, y_pred)
-    mse = mean_squared_error(y_true, y_pred)
 
-    print(f"Mean Absolute Percentage Error (MAPE): {mape:.2f}%")
+
     print(f"Normalized Root Mean Square Error (NRMSE): {nrmse:.4f}")
     print(f"Mean Absolute Scaled Error (MASE): {mase:.4f}")
-    print(f"Root Mean Square Error (RMSE): {rmse:.4f}")
     print(f"Mean Absolute Error (MAE): {mae:.4f}")
-    print(f"Mean Squared Error (MSE): {mse:.4f}")
 
-    return mape, nrmse, mase, rmse, mae, mse
+    return nrmse, mase, mae
 
-
-def calculate_all_metrics(actual, predicted, train_data, label, areaname):
-    """Calculate metrics for each state."""
-    print(f"\nMetrics for {label}:")
-    mape, nrmse, mase, rmse, mae, mse = calculate_errors(
-        actual, predicted, train_data, areaname
-    )
-    return mape, nrmse, mase, rmse, mae, mse
 
 
 # Define the SEIRD model differential equations
@@ -329,7 +314,7 @@ class ParameterNet(nn.Module):
         for _ in range(num_layers - 1):
             layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
 
-        layers.append(nn.Linear(hidden_neurons, 5))
+        layers.append(nn.Linear(hidden_neurons, 6))
         self.net = nn.Sequential(*layers)
 
         self.init_xavier()
@@ -342,12 +327,13 @@ class ParameterNet(nn.Module):
 
         # Apply the sigmoid function followed by a linear transformation
         beta = torch.sigmoid(raw_parameters[:, 0])
-        gamma_c = torch.sigmoid(raw_parameters[:, 1]) 
+        gamma_c = torch.sigmoid(raw_parameters[:, 1])
         delta_c = torch.sigmoid(raw_parameters[:, 2]) 
-        eta = torch.sigmoid(raw_parameters[:, 3])
+        eta = torch.sigmoid(raw_parameters[:, 3]) 
         mu = torch.sigmoid(raw_parameters[:, 4])
+        omega = torch.sigmoid(raw_parameters[:, 5])
 
-        return beta, gamma_c, delta_c, eta, mu
+        return beta, gamma_c, delta_c, eta, mu, omega
 
     def init_xavier(self):
         def init_weights(layer):
@@ -364,139 +350,45 @@ class ParameterNet(nn.Module):
 
 
 def einn_loss(model_output, tensor_data, parameters, t):
-    """Compute the loss function for the EINN model with L2 regularization."""
-
-    # Split the model output into the different compartments
     S_pred, E_pred, Is_pred, Ia_pred, H_pred, C_pred, R_pred, D_pred = (
-        model_output[:, 0],
-        model_output[:, 1],
-        model_output[:, 2],
-        model_output[:, 3],
-        model_output[:, 4],
-        model_output[:, 5],
-        model_output[:, 6],
-        model_output[:, 7],
+        model_output[:, 0], model_output[:, 1], model_output[:, 2], model_output[:, 3],
+        model_output[:, 4], model_output[:, 5], model_output[:, 6], model_output[:, 7]
     )
 
-    # Normalize the data
+    Is_data, H_data, C_data, D_data = tensor_data[:, 0], tensor_data[:, 1], tensor_data[:, 2], tensor_data[:, 3]
+
     N = 1
+    rho = 0.80
+    alpha = 1 / 5
+    ds = 1 / 4
+    da = 1 / 7
+    dH = 1 / 13.4
 
-    Is_data, H_data, C_data, D_data = (
-        tensor_data[:, 0],
-        tensor_data[:, 1],
-        tensor_data[:, 2],
-        tensor_data[:, 3],
-    )
+    beta_pred, gamma_c_pred, delta_c_pred, eta_pred, mu_pred, omega_pred = parameters
+    
+    
 
-    # Constants based on the table provided
-    rho = 0.80  # Proportion of symptomatic infections (80%)
-    alpha = 1 / 5  # Incubation period (5 days)
-    ds = 1 / 4  # Infectious period for symptomatic (4 days)
-    da = 1 / 7  # Infectious period for asymptomatic (7 days)
-    dH = 1 / 13.4  # Hospitalization days (13.4 days)
-    omega = 0.50  # Proportion of symptomatic cases requiring hospitalization (50%)
-    # mu = 0.05  # Mortality rate (5%)
-
-    # Learned parameters
-    beta_pred, gamma_c_pred, delta_c_pred, eta_pred, mu = parameters
-
-    # Compute the differential equations
-    S_t = grad(
-        S_pred,
-        t,
-        grad_outputs=torch.ones_like(S_pred),
-        create_graph=True,
-        retain_graph=True,
-    )[0]
-    E_t = grad(
-        E_pred,
-        t,
-        grad_outputs=torch.ones_like(E_pred),
-        create_graph=True,
-        retain_graph=True,
-    )[0]
-    Ia_t = grad(
-        Ia_pred,
-        t,
-        grad_outputs=torch.ones_like(Ia_pred),
-        create_graph=True,
-        retain_graph=True,
-    )[0]
-    Is_t = grad(
-        Is_pred,
-        t,
-        grad_outputs=torch.ones_like(Is_pred),
-        create_graph=True,
-        retain_graph=True,
-    )[0]
-    H_t = grad(
-        H_pred,
-        t,
-        grad_outputs=torch.ones_like(H_pred),
-        create_graph=True,
-        retain_graph=True,
-    )[0]
-    C_t = grad(
-        C_pred,
-        t,
-        grad_outputs=torch.ones_like(C_pred),
-        create_graph=True,
-        retain_graph=True,
-    )[0]
-    R_t = grad(
-        R_pred,
-        t,
-        grad_outputs=torch.ones_like(R_pred),
-        create_graph=True,
-        retain_graph=True,
-    )[0]
-    D_t = grad(
-        D_pred,
-        t,
-        grad_outputs=torch.ones_like(D_pred),
-        create_graph=True,
-        retain_graph=True,
-    )[0]
+    S_t = grad(S_pred, t, grad_outputs=torch.ones_like(S_pred), create_graph=True, retain_graph=True)[0]
+    E_t = grad(E_pred, t, grad_outputs=torch.ones_like(E_pred), create_graph=True, retain_graph=True)[0]
+    Ia_t = grad(Ia_pred, t, grad_outputs=torch.ones_like(Ia_pred), create_graph=True, retain_graph=True)[0]
+    Is_t = grad(Is_pred, t, grad_outputs=torch.ones_like(Is_pred), create_graph=True, retain_graph=True)[0]
+    H_t = grad(H_pred, t, grad_outputs=torch.ones_like(H_pred), create_graph=True, retain_graph=True)[0]
+    C_t = grad(C_pred, t, grad_outputs=torch.ones_like(C_pred), create_graph=True, retain_graph=True)[0]
+    R_t = grad(R_pred, t, grad_outputs=torch.ones_like(R_pred), create_graph=True, retain_graph=True)[0]
+    D_t = grad(D_pred, t, grad_outputs=torch.ones_like(D_pred), create_graph=True, retain_graph=True)[0]
 
     dSdt, dEdt, dIadt, dIsdt, dHdt, dCdt, dRdt, dDdt = seird_model(
         [S_pred, E_pred, Is_pred, Ia_pred, H_pred, C_pred, R_pred, D_pred],
-        t,
-        N,
-        beta_pred,
-        alpha,
-        rho,
-        ds,
-        da,
-        omega,
-        dH,
-        mu,
-        gamma_c_pred,
-        delta_c_pred,
-        eta_pred,
+        t, N, beta_pred, alpha, rho, ds, da, omega_pred, dH, mu_pred, gamma_c_pred, delta_c_pred, eta_pred
     )
 
-    # Compute the loss function
-    data_loss = (
-        torch.mean((Is_pred - Is_data) ** 2)
-        + torch.mean((H_pred - H_data) ** 2)
-        + torch.mean((C_pred - C_data) ** 2)
-        + torch.mean((D_pred - D_data) ** 2)
-    )
-
-    residual_loss = (
-        torch.mean((S_t - dSdt) ** 2)
-        + torch.mean((E_t - dEdt) ** 2)
-        + torch.mean((Ia_t - dIadt) ** 2)
-        + torch.mean((Is_t - dIsdt) ** 2)
-        + torch.mean((H_t - dHdt) ** 2)
-        + torch.mean((C_t - dCdt) ** 2)
-        + torch.mean((R_t - dRdt) ** 2)
-        + torch.mean((D_t - dDdt) ** 2)
-    )
+    data_loss = nn.MSELoss()(Is_pred, Is_data) + nn.MSELoss()(H_pred, H_data) + nn.MSELoss()(C_pred, C_data) + nn.MSELoss()(D_pred, D_data)
+    
+    residual_loss = nn.MSELoss()(S_t, dSdt) + nn.MSELoss()(E_t, dEdt) + nn.MSELoss()(Ia_t, dIadt) + nn.MSELoss()(Is_t, dIsdt) + nn.MSELoss()(H_t, dHdt) + nn.MSELoss()(C_t, dCdt) + nn.MSELoss()(R_t, dRdt) + nn.MSELoss()(D_t, dDdt)
 
     loss = data_loss + residual_loss
-
     return loss
+
 
 
 class EarlyStopping:
@@ -528,7 +420,8 @@ class EarlyStopping:
 def train_model(
     model,
     parameter_net,
-    optimizer,
+    model_optimizer,
+    parameter_net_optimizer,
     scheduler,
     time_stamps,
     data_scaled,
@@ -547,7 +440,8 @@ def train_model(
         data = data_scaled.to(device).float()
 
         # Zero gradients
-        optimizer.zero_grad()
+        model_optimizer.zero_grad()
+        parameter_net_optimizer.zero_grad()
 
         # Forward pass
         model_output = model(t)
@@ -558,7 +452,8 @@ def train_model(
 
         # Backward pass and optimization
         loss.backward()
-        optimizer.step()
+        model_optimizer.step()
+        parameter_net_optimizer.step()
 
         train_loss = loss.item()
 
@@ -584,14 +479,21 @@ scaled_data, scaler = scale_data(data, features, device)
 
 # Initialize model, optimizer, and scheduler
 model = EpiNet(num_layers=5, hidden_neurons=32, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=5, hidden_neurons=32).to(device)
-optimizer = optim.Adam(
-    list(model.parameters()) + list(parameter_net.parameters()), lr=2e-4
-)
-scheduler = StepLR(optimizer, step_size=5000, gamma=0.9)
+parameter_net = ParameterNet(num_layers=1, hidden_neurons=32).to(device)
+# optimizer = optim.Adam(
+#     list(model.parameters()) + list(parameter_net.parameters()), lr=2e-4
+# )
+# scheduler = StepLR(optimizer, step_size=5000, gamma=0.9)
+
+model_optimizer = optim.Adam(model.parameters(), lr=1e-4)
+parameter_net_optimizer = optim.Adam(parameter_net.parameters(), lr=1e-4)
+optimizer = (model_optimizer, parameter_net_optimizer)
+scheduler = StepLR(model_optimizer, step_size=5000, gamma=0.9)
+
+
 
 # Early stopping
-early_stopping = EarlyStopping(patience=200, verbose=False)
+early_stopping = EarlyStopping(patience=100, verbose=False)
 
 # Create timestamps tensor
 # time_stamps = torch.tensor(np.arange(1, len(data) + 1), dtype=torch.float32).view(-1, 1).to(device).requires_grad_(True)
@@ -605,7 +507,8 @@ time_stamps = (
 train_losses = train_model(
     model,
     parameter_net,
-    optimizer,
+    model_optimizer,
+    parameter_net_optimizer,
     scheduler,
     time_stamps,
     scaled_data,
@@ -636,6 +539,7 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
         time_stamps = t
         model_output = model(time_stamps)
         parameters = parameter_net.get_parameters(time_stamps)
+        
 
     observed_model_output = pd.DataFrame(
         {
@@ -697,23 +601,27 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
     plt.savefig("../../reports/figures/unobserved_outputs.pdf")
     plt.show()
 
-    fig, axs = plt.subplots(1, 5, figsize=(28, 6), sharex=True)
+    fig, axs = plt.subplots(2, 3, figsize=(25, 10), sharex=True)
     parameters_np = [p.cpu().numpy() for p in parameters]
-
-    axs[0].plot(dates, parameters_np[0], label="Beta", color="purple")
-    axs[0].set_ylabel("Beta")
-
-    axs[1].plot(dates, parameters_np[1], label="Gamma_c", color="purple")
-    axs[1].set_ylabel("Gamma_c")
-
-    axs[2].plot(dates, parameters_np[2], label="Delta_c", color="purple")
-    axs[2].set_ylabel("Delta_c")
-
-    axs[3].plot(dates, parameters_np[3], label="Eta", color="purple")
-    axs[3].set_ylabel("Eta")
     
-    axs[4].plot(dates, parameters_np[4], label="Mu", color="purple")
-    axs[4].set_ylabel("Mu")
+    axs[0, 0].plot(dates, parameters_np[0], label="Beta", color="purple")
+    axs[0, 0].set_ylabel("Beta")
+    
+    axs[0, 1].plot(dates, parameters_np[1], label="Gamma_c", color="purple")
+    axs[0, 1].set_ylabel("Gamma_c")
+    
+    axs[0, 2].plot(dates, parameters_np[2], label="Delta_c", color="purple")
+    axs[0, 2].set_ylabel("Delta_c")
+    
+    axs[1, 0].plot(dates, parameters_np[3], label="Eta", color="purple")
+    axs[1, 0].set_ylabel("Eta")
+    
+    axs[1, 1].plot(dates, parameters_np[4], label="Mu", color="purple")
+    axs[1, 1].set_ylabel("Mu")
+    
+    axs[1, 2].plot(dates, parameters_np[5], label="Omega", color="purple")
+    axs[1, 2].set_ylabel("Omega")
+
 
     for ax in axs.flat:
         ax.set_xlabel("Date")
@@ -723,60 +631,9 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
     plt.savefig("../../reports/figures/time_varying_parameters.pdf")
     plt.show()
 
-    return parameters_np
+    return parameters_np, observed_model_output_scaled
 
-parameters_np = plot_outputs(model, time_stamps, parameter_net, data, device, scaler)
-
-# Calculate R_t and R_c
-beta, gamma_c, delta_c, eta, mu = parameters_np
-
-def calculate_R_t(beta, gamma_c, delta_c, eta, mu, S, N, alpha, rho, ds, da):
-    return beta * S / N * (1 / alpha + rho / ds + (1 - rho) / da)
-
-# Calculate R_t and R_c over time
-N = data['population'].values[0]
-S = model_output[:, 0].cpu().numpy()
-R_t = calculate_R_t(beta, gamma_c, delta_c, eta, mu, S, N, 1/5, 0.80, 1/4, 1/7)
-
-plt.plot(dates, R_t, label="R_t")
-plt.xlabel("Date")
-plt.ylabel("R_t")
-plt.title("R_t over Time")
-plt.legend()
-plt.savefig("../../reports/figures/R_t.pdf")
-plt.show()
-
-# Evaluate model effectiveness
-def evaluate_model(actual, predicted):
-    mape = mean_absolute_percentage_error(actual, predicted)
-    nrmse = normalized_root_mean_square_error(actual, predicted)
-    mase = safe_mean_absolute_scaled_error(actual, predicted, actual)
-    rmse = np.sqrt(mean_squared_error(actual, predicted))
-    mae = mean_absolute_error(actual, predicted)
-    mse = mean_squared_error(actual, predicted)
-
-    print(f"Mean Absolute Percentage Error (MAPE): {mape:.2f}%")
-    print(f"Normalized Root Mean Square Error (NRMSE): {nrmse:.4f}")
-    print(f"Mean Absolute Scaled Error (MASE): {mase:.4f}")
-    print(f"Root Mean Square Error (RMSE): {rmse:.4f}")
-    print(f"Mean Absolute Error (MAE): {mae:.4f}")
-    print(f"Mean Squared Error (MSE): {mse:.4f}")
-
-    return mape, nrmse, mase, rmse, mae, mse
+parameters_np, observed_model_output_scaled = plot_outputs(model, time_stamps, parameter_net, data, device, scaler)
 
 # Evaluate on all states
-actual_confirmed = data["daily_confirmed"].values
-predicted_confirmed = observed_model_output_scaled[:, 0]
-evaluate_model(actual_confirmed, predicted_confirmed)
 
-actual_hospitalized = data["daily_hospitalized"].values
-predicted_hospitalized = observed_model_output_scaled[:, 1]
-evaluate_model(actual_hospitalized, predicted_hospitalized)
-
-actual_critical = data["covidOccupiedMVBeds"].values
-predicted_critical = observed_model_output_scaled[:, 2]
-evaluate_model(actual_critical, predicted_critical)
-
-actual_deceased = data["daily_deceased"].values
-predicted_deceased = observed_model_output_scaled[:, 3]
-evaluate_model(actual_deceased, predicted_deceased)
