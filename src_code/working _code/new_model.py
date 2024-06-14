@@ -2,7 +2,7 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
+from matplotlib.ticker import MaxNLocator
 from tqdm.notebook import tqdm
 from scipy.integrate import odeint
 from collections import deque
@@ -12,7 +12,7 @@ from torch.autograd import grad
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
 
 
 # Ensure necessary directories exist
@@ -112,12 +112,12 @@ plt.rcParams.update(
 )
 
 
+
 def normalized_root_mean_square_error(y_true, y_pred):
     """Calculate the Normalized Root Mean Square Error (NRMSE)."""
     return np.sqrt(mean_squared_error(y_true, y_pred)) / (
         np.max(y_true) - np.min(y_true)
     )
-
 
 def safe_mean_absolute_scaled_error(y_true, y_pred, y_train, epsilon=1e-10):
     """Calculate the Mean Absolute Scaled Error (MASE) safely."""
@@ -127,22 +127,19 @@ def safe_mean_absolute_scaled_error(y_true, y_pred, y_train, epsilon=1e-10):
     errors = np.abs(y_true - y_pred)
     return errors.mean() / d
 
-
-def calculate_errors(y_true, y_pred, y_train, areaname):
-    """Calculate and print various error metrics."""
-
+def calculate_errors(y_true, y_pred, y_train):
+    """Calculate and return various error metrics."""
     nrmse = normalized_root_mean_square_error(y_true, y_pred)
     mase = safe_mean_absolute_scaled_error(y_true, y_pred, y_train)
     mae = mean_absolute_error(y_true, y_pred)
+    mape = mean_absolute_percentage_error(y_true, y_pred)
+    return nrmse, mase, mae, mape
 
-
-    print(f"Normalized Root Mean Square Error (NRMSE): {nrmse:.4f}")
-    print(f"Mean Absolute Scaled Error (MASE): {mase:.4f}")
-    print(f"Mean Absolute Error (MAE): {mae:.4f}")
-
-    return nrmse, mase, mae
-
-
+def save_metrics(metrics, areaname):
+    """Save metrics to a CSV file."""
+    metrics_df = pd.DataFrame(metrics, columns=["Metric", "Value"])
+    metrics_df.to_csv(f"../../reports/results/{areaname}_metrics.csv", index=False)
+    print(f"Metrics saved to ../../reports/results/{areaname}_metrics.csv")
 
 # Define the SEIRD model differential equations
 def seird_model(
@@ -478,8 +475,8 @@ def train_model(
 scaled_data, scaler = scale_data(data, features, device)
 
 # Initialize model, optimizer, and scheduler
-model = EpiNet(num_layers=5, hidden_neurons=32, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=1, hidden_neurons=32).to(device)
+model = EpiNet(num_layers=5, hidden_neurons=20, output_size=8).to(device)
+parameter_net = ParameterNet(num_layers=3, hidden_neurons=20).to(device)
 # optimizer = optim.Adam(
 #     list(model.parameters()) + list(parameter_net.parameters()), lr=2e-4
 # )
@@ -493,7 +490,7 @@ scheduler = StepLR(model_optimizer, step_size=5000, gamma=0.9)
 
 
 # Early stopping
-early_stopping = EarlyStopping(patience=100, verbose=False)
+early_stopping = EarlyStopping(patience=200, verbose=False)
 
 # Create timestamps tensor
 # time_stamps = torch.tensor(np.arange(1, len(data) + 1), dtype=torch.float32).view(-1, 1).to(device).requires_grad_(True)
@@ -601,39 +598,89 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
     plt.savefig("../../reports/figures/unobserved_outputs.pdf")
     plt.show()
 
-    fig, axs = plt.subplots(2, 3, figsize=(25, 10), sharex=True)
+    # fig, axs = plt.subplots(2, 3, figsize=(25, 10), sharex=True)
+    # parameters_np = [p.cpu().numpy() for p in parameters]
+    
+    # axs[0, 0].plot(dates, parameters_np[0], label="Beta", color="purple")
+    # axs[0, 0].set_ylabel("Beta")
+    
+    # axs[0, 1].plot(dates, parameters_np[1], label="Gamma_c", color="purple")
+    # axs[0, 1].set_ylabel("Gamma_c")
+    
+    # axs[0, 2].plot(dates, parameters_np[2], label="Delta_c", color="purple")
+    # axs[0, 2].set_ylabel("Delta_c")
+    
+    # axs[1, 0].plot(dates, parameters_np[3], label="Eta", color="purple")
+    # axs[1, 0].set_ylabel("Eta")
+    
+    # axs[1, 1].plot(dates, parameters_np[4], label="Mu", color="purple")
+    # axs[1, 1].set_ylabel("Mu")
+    
+    # axs[1, 2].plot(dates, parameters_np[5], label="Omega", color="purple")
+    # axs[1, 2].set_ylabel("Omega")
+
+
+    # for ax in axs.flat:
+    #     ax.set_xlabel("Date")
+    #     ax.tick_params(axis="x", rotation=45)
+
+    # plt.tight_layout()
+    # plt.savefig("../../reports/figures/time_varying_parameters.pdf")
+    # plt.show()
+    
+    
+
+    fig, axs = plt.subplots(2, 3, figsize=(20, 10), sharex=True)
     parameters_np = [p.cpu().numpy() for p in parameters]
-    
-    axs[0, 0].plot(dates, parameters_np[0], label="Beta", color="purple")
-    axs[0, 0].set_ylabel("Beta")
-    
-    axs[0, 1].plot(dates, parameters_np[1], label="Gamma_c", color="purple")
-    axs[0, 1].set_ylabel("Gamma_c")
-    
-    axs[0, 2].plot(dates, parameters_np[2], label="Delta_c", color="purple")
-    axs[0, 2].set_ylabel("Delta_c")
-    
-    axs[1, 0].plot(dates, parameters_np[3], label="Eta", color="purple")
-    axs[1, 0].set_ylabel("Eta")
-    
-    axs[1, 1].plot(dates, parameters_np[4], label="Mu", color="purple")
-    axs[1, 1].set_ylabel("Mu")
-    
-    axs[1, 2].plot(dates, parameters_np[5], label="Omega", color="purple")
-    axs[1, 2].set_ylabel("Omega")
 
+    # Define the LaTeX labels for the parameters
+    latex_labels = [r'$\beta$', r'$\gamma_c$', r'$\delta_c$', r'$\eta$', r'$\mu$', r'$\omega$']
+    colors = ["purple"] * 6  # Use a list for colors in case you want to customize further
 
-    for ax in axs.flat:
-        ax.set_xlabel("Date")
-        ax.tick_params(axis="x", rotation=45)
+    # Plot each parameter with its corresponding label
+    for i, (ax, param, label, color) in enumerate(zip(axs.flat, parameters_np, latex_labels, colors)):
+        ax.plot(dates, param, label=label, color=color)
+        ax.set_ylabel(label, fontsize=14)
+        ax.set_xlabel("Date", fontsize=12)
+        ax.tick_params(axis='x', rotation=45)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.legend(fontsize=12)
 
-    plt.tight_layout()
-    plt.savefig("../../reports/figures/time_varying_parameters.pdf")
+    # Adjust layout and save the figure
+    plt.tight_layout(pad=2.0)
+    plt.savefig("../../reports/figures/time_varying_parameters.pdf", bbox_inches='tight')
     plt.show()
 
     return parameters_np, observed_model_output_scaled
 
 parameters_np, observed_model_output_scaled = plot_outputs(model, time_stamps, parameter_net, data, device, scaler)
 
-# Evaluate on all states
+# Evaluate the predictions on the observed data
+I, H, C, D = prepare_tensors(data, device)
+I_pred, H_pred, C_pred, D_pred = observed_model_output_scaled[:, 0], observed_model_output_scaled[:, 1], observed_model_output_scaled[:, 2], observed_model_output_scaled[:, 3]
 
+# Collect metrics
+metrics = []
+
+# Calculate and print errors for each metric
+metric_names = ["NRMSE", "MASE", "MAE", "MAPE"]
+areas = ["Infections", "Hospitalizations", "Critical", "Deaths"]
+observed_data = [I.cpu().numpy(), H.cpu().numpy(), C.cpu().numpy(), D.cpu().numpy()]
+predicted_data = [I_pred, H_pred, C_pred, D_pred]
+train_data = [data["daily_confirmed"].values, data["daily_hospitalized"].values, data["covidOccupiedMVBeds"].values, data["daily_deceased"].values]
+
+for obs, pred, train, area in zip(observed_data, predicted_data, train_data, areas):
+    nrmse, mase, mae, mape = calculate_errors(obs, pred, train)
+    print(f"Metrics for {area}:")
+    print(f"Normalized Root Mean Square Error (NRMSE): {nrmse:.4f}")
+    print(f"Mean Absolute Scaled Error (MASE): {mase:.4f}")
+    print(f"Mean Absolute Error (MAE): {mae:.4f}")
+    print(f"Mean Absolute Percentage Error (MAPE): {mape:.4f}")
+
+    metrics.append([f"{area}_NRMSE", nrmse])
+    metrics.append([f"{area}_MASE", mase])
+    metrics.append([f"{area}_MAE", mae])
+    metrics.append([f"{area}_MAPE", mape])
+
+# Save metrics to CSV
+save_metrics(metrics, "England")
