@@ -13,7 +13,9 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
-
+import sys
+sys.path.append(os.path.join('../../pyblish', 'plots'))
+import publish
 
 # Ensure necessary directories exist
 os.makedirs("../../models", exist_ok=True)
@@ -65,51 +67,53 @@ print(f"Using device: {device}")
 
 # Set matplotlib style and parameters
 plt.style.use("seaborn-v0_8-paper")
-plt.rcParams.update(
-    {
-        "font.family": "serif",
-        "font.size": 14,
-        "figure.figsize": [8, 5],
-        "text.usetex": False,
-        "figure.facecolor": "white",
-        "figure.autolayout": True,
-        "figure.dpi": 600,
-        "savefig.dpi": 600,
-        "savefig.format": "pdf",
-        "savefig.bbox": "tight",
-        "axes.labelweight": "bold",
-        "axes.titleweight": "bold",
-        "axes.labelsize": 12,
-        "axes.titlesize": 18,
-        "axes.facecolor": "white",
-        "axes.grid": False,
-        "axes.spines.top": False,
-        "axes.spines.right": False,
-        "axes.formatter.limits": (0, 5),
-        "axes.formatter.use_mathtext": True,
-        "axes.formatter.useoffset": False,
-        "axes.xmargin": 0,
-        "axes.ymargin": 0,
-        "legend.fontsize": 12,
-        "legend.frameon": False,
-        "legend.loc": "best",
-        "lines.linewidth": 2,
-        "lines.markersize": 8,
-        "xtick.labelsize": 12,
-        "xtick.direction": "in",
-        "xtick.top": False,
-        "ytick.labelsize": 12,
-        "ytick.direction": "in",
-        "ytick.right": False,
-        "grid.color": "grey",
-        "grid.linestyle": "--",
-        "grid.linewidth": 0.5,
-        "errorbar.capsize": 4,
-        "figure.subplot.wspace": 0.4,
-        "figure.subplot.hspace": 0.4,
-        "image.cmap": "viridis",
-    }
-)
+# plt.rcParams.update(
+#     {
+#         "font.family": "serif",
+#         "font.size": 14,
+#         "figure.figsize": [8, 5],
+#         "text.usetex": False,
+#         "figure.facecolor": "white",
+#         "figure.autolayout": True,
+#         "figure.dpi": 600,
+#         "savefig.dpi": 600,
+#         "savefig.format": "pdf",
+#         "savefig.bbox": "tight",
+#         "axes.labelweight": "bold",
+#         "axes.titleweight": "bold",
+#         "axes.labelsize": 12,
+#         "axes.titlesize": 18,
+#         "axes.facecolor": "white",
+#         "axes.grid": False,
+#         "axes.spines.top": False,
+#         "axes.spines.right": False,
+#         "axes.formatter.limits": (0, 5),
+#         "axes.formatter.use_mathtext": True,
+#         "axes.formatter.useoffset": False,
+#         "axes.xmargin": 0,
+#         "axes.ymargin": 0,
+#         "legend.fontsize": 12,
+#         "legend.frameon": False,
+#         "legend.loc": "best",
+#         "lines.linewidth": 2,
+#         "lines.markersize": 8,
+#         "xtick.labelsize": 12,
+#         "xtick.direction": "in",
+#         "xtick.top": False,
+#         "ytick.labelsize": 12,
+#         "ytick.direction": "in",
+#         "ytick.right": False,
+#         "grid.color": "grey",
+#         "grid.linestyle": "--",
+#         "grid.linewidth": 0.5,
+#         "errorbar.capsize": 4,
+#         "figure.subplot.wspace": 0.4,
+#         "figure.subplot.hspace": 0.4,
+#         "image.cmap": "viridis",
+#     }
+# )
+
+
 
 
 
@@ -475,8 +479,8 @@ def train_model(
 scaled_data, scaler = scale_data(data, features, device)
 
 # Initialize model, optimizer, and scheduler
-model = EpiNet(num_layers=5, hidden_neurons=20, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=3, hidden_neurons=20).to(device)
+model = EpiNet(num_layers=5, hidden_neurons=32, output_size=8).to(device)
+parameter_net = ParameterNet(num_layers=3, hidden_neurons=32).to(device)
 # optimizer = optim.Adam(
 #     list(model.parameters()) + list(parameter_net.parameters()), lr=2e-4
 # )
@@ -490,7 +494,7 @@ scheduler = StepLR(model_optimizer, step_size=5000, gamma=0.9)
 
 
 # Early stopping
-early_stopping = EarlyStopping(patience=100, verbose=False)
+early_stopping = EarlyStopping(patience=200, verbose=False)
 
 # Create timestamps tensor
 # time_stamps = torch.tensor(np.arange(1, len(data) + 1), dtype=torch.float32).view(-1, 1).to(device).requires_grad_(True)
