@@ -2,7 +2,7 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
+from matplotlib.ticker import MaxNLocator
 from tqdm.notebook import tqdm
 from scipy.integrate import odeint
 from collections import deque
@@ -12,11 +12,8 @@ from torch.autograd import grad
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import (
-    mean_absolute_error,
-    mean_squared_error,
-    mean_absolute_percentage_error,
-)
+from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
+
 
 # Ensure necessary directories exist
 os.makedirs("../../models", exist_ok=True)
@@ -115,12 +112,12 @@ plt.rcParams.update(
 )
 
 
+
 def normalized_root_mean_square_error(y_true, y_pred):
     """Calculate the Normalized Root Mean Square Error (NRMSE)."""
     return np.sqrt(mean_squared_error(y_true, y_pred)) / (
         np.max(y_true) - np.min(y_true)
     )
-
 
 def safe_mean_absolute_scaled_error(y_true, y_pred, y_train, epsilon=1e-10):
     """Calculate the Mean Absolute Scaled Error (MASE) safely."""
@@ -130,34 +127,19 @@ def safe_mean_absolute_scaled_error(y_true, y_pred, y_train, epsilon=1e-10):
     errors = np.abs(y_true - y_pred)
     return errors.mean() / d
 
-
-def calculate_errors(y_true, y_pred, y_train, areaname):
-    """Calculate and print various error metrics."""
-    mape = mean_absolute_percentage_error(y_true, y_pred)
+def calculate_errors(y_true, y_pred, y_train):
+    """Calculate and return various error metrics."""
     nrmse = normalized_root_mean_square_error(y_true, y_pred)
     mase = safe_mean_absolute_scaled_error(y_true, y_pred, y_train)
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
     mae = mean_absolute_error(y_true, y_pred)
-    mse = mean_squared_error(y_true, y_pred)
+    mape = mean_absolute_percentage_error(y_true, y_pred)
+    return nrmse, mase, mae, mape
 
-    print(f"Mean Absolute Percentage Error (MAPE): {mape:.2f}%")
-    print(f"Normalized Root Mean Square Error (NRMSE): {nrmse:.4f}")
-    print(f"Mean Absolute Scaled Error (MASE): {mase:.4f}")
-    print(f"Root Mean Square Error (RMSE): {rmse:.4f}")
-    print(f"Mean Absolute Error (MAE): {mae:.4f}")
-    print(f"Mean Squared Error (MSE): {mse:.4f}")
-
-    return mape, nrmse, mase, rmse, mae, mse
-
-
-def calculate_all_metrics(actual, predicted, train_data, label, areaname):
-    """Calculate metrics for each state."""
-    print(f"\nMetrics for {label}:")
-    mape, nrmse, mase, rmse, mae, mse = calculate_errors(
-        actual, predicted, train_data, areaname
-    )
-    return mape, nrmse, mase, rmse, mae, mse
-
+def save_metrics(metrics, areaname):
+    """Save metrics to a CSV file."""
+    metrics_df = pd.DataFrame(metrics, columns=["Metric", "Value"])
+    metrics_df.to_csv(f"../../reports/results/{areaname}_metrics.csv", index=False)
+    print(f"Metrics saved to ../../reports/results/{areaname}_metrics.csv")
 
 # Define the SEIRD model differential equations
 def seird_model(
@@ -329,7 +311,7 @@ class ParameterNet(nn.Module):
         for _ in range(num_layers - 1):
             layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
 
-        layers.append(nn.Linear(hidden_neurons, 5))
+        layers.append(nn.Linear(hidden_neurons, 6))
         self.net = nn.Sequential(*layers)
 
         self.init_xavier()
@@ -342,12 +324,13 @@ class ParameterNet(nn.Module):
 
         # Apply the sigmoid function followed by a linear transformation
         beta = torch.sigmoid(raw_parameters[:, 0])
-        gamma_c = torch.sigmoid(raw_parameters[:, 1]) 
+        gamma_c = torch.sigmoid(raw_parameters[:, 1])
         delta_c = torch.sigmoid(raw_parameters[:, 2]) 
-        eta = torch.sigmoid(raw_parameters[:, 3])
+        eta = torch.sigmoid(raw_parameters[:, 3]) 
         mu = torch.sigmoid(raw_parameters[:, 4])
+        omega = torch.sigmoid(raw_parameters[:, 5])
 
-        return beta, gamma_c, delta_c, eta, mu
+        return beta, gamma_c, delta_c, eta, mu, omega
 
     def init_xavier(self):
         def init_weights(layer):
@@ -377,9 +360,10 @@ def einn_loss(model_output, tensor_data, parameters, t):
     ds = 1 / 4
     da = 1 / 7
     dH = 1 / 13.4
-    omega = 0.50
 
-    beta_pred, gamma_c_pred, delta_c_pred, eta_pred, mu = parameters
+    beta_pred, gamma_c_pred, delta_c_pred, eta_pred, mu_pred, omega_pred = parameters
+    
+    
 
     S_t = grad(S_pred, t, grad_outputs=torch.ones_like(S_pred), create_graph=True, retain_graph=True)[0]
     E_t = grad(E_pred, t, grad_outputs=torch.ones_like(E_pred), create_graph=True, retain_graph=True)[0]
@@ -392,26 +376,12 @@ def einn_loss(model_output, tensor_data, parameters, t):
 
     dSdt, dEdt, dIadt, dIsdt, dHdt, dCdt, dRdt, dDdt = seird_model(
         [S_pred, E_pred, Is_pred, Ia_pred, H_pred, C_pred, R_pred, D_pred],
-        t, N, beta_pred, alpha, rho, ds, da, omega, dH, mu, gamma_c_pred, delta_c_pred, eta_pred
+        t, N, beta_pred, alpha, rho, ds, da, omega_pred, dH, mu_pred, gamma_c_pred, delta_c_pred, eta_pred
     )
 
-    data_loss = (
-        torch.mean((Is_pred - Is_data) ** 2) +
-        torch.mean((H_pred - H_data) ** 2) +
-        torch.mean((C_pred - C_data) ** 2) +
-        torch.mean((D_pred - D_data) ** 2)
-    )
-
-    residual_loss = (
-        torch.mean((S_t - dSdt) ** 2) +
-        torch.mean((E_t - dEdt) ** 2) +
-        torch.mean((Ia_t - dIadt) ** 2) +
-        torch.mean((Is_t - dIsdt) ** 2) +
-        torch.mean((H_t - dHdt) ** 2) +
-        torch.mean((C_t - dCdt) ** 2) +
-        torch.mean((R_t - dRdt) ** 2) +
-        torch.mean((D_t - dDdt) ** 2)
-    )
+    data_loss = nn.MSELoss()(Is_pred, Is_data) + nn.MSELoss()(H_pred, H_data) + nn.MSELoss()(C_pred, C_data) + nn.MSELoss()(D_pred, D_data)
+    
+    residual_loss = nn.MSELoss()(S_t, dSdt) + nn.MSELoss()(E_t, dEdt) + nn.MSELoss()(Ia_t, dIadt) + nn.MSELoss()(Is_t, dIsdt) + nn.MSELoss()(H_t, dHdt) + nn.MSELoss()(C_t, dCdt) + nn.MSELoss()(R_t, dRdt) + nn.MSELoss()(D_t, dDdt)
 
     loss = data_loss + residual_loss
     return loss
@@ -505,8 +475,8 @@ def train_model(
 scaled_data, scaler = scale_data(data, features, device)
 
 # Initialize model, optimizer, and scheduler
-model = EpiNet(num_layers=5, hidden_neurons=32, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=2, hidden_neurons=32).to(device)
+model = EpiNet(num_layers=5, hidden_neurons=20, output_size=8).to(device)
+parameter_net = ParameterNet(num_layers=3, hidden_neurons=20).to(device)
 # optimizer = optim.Adam(
 #     list(model.parameters()) + list(parameter_net.parameters()), lr=2e-4
 # )
@@ -566,6 +536,7 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
         time_stamps = t
         model_output = model(time_stamps)
         parameters = parameter_net.get_parameters(time_stamps)
+        
 
     observed_model_output = pd.DataFrame(
         {
@@ -627,111 +598,89 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
     plt.savefig("../../reports/figures/unobserved_outputs.pdf")
     plt.show()
 
-    fig, axs = plt.subplots(1, 5, figsize=(28, 6), sharex=True)
+    # fig, axs = plt.subplots(2, 3, figsize=(25, 10), sharex=True)
+    # parameters_np = [p.cpu().numpy() for p in parameters]
+    
+    # axs[0, 0].plot(dates, parameters_np[0], label="Beta", color="purple")
+    # axs[0, 0].set_ylabel("Beta")
+    
+    # axs[0, 1].plot(dates, parameters_np[1], label="Gamma_c", color="purple")
+    # axs[0, 1].set_ylabel("Gamma_c")
+    
+    # axs[0, 2].plot(dates, parameters_np[2], label="Delta_c", color="purple")
+    # axs[0, 2].set_ylabel("Delta_c")
+    
+    # axs[1, 0].plot(dates, parameters_np[3], label="Eta", color="purple")
+    # axs[1, 0].set_ylabel("Eta")
+    
+    # axs[1, 1].plot(dates, parameters_np[4], label="Mu", color="purple")
+    # axs[1, 1].set_ylabel("Mu")
+    
+    # axs[1, 2].plot(dates, parameters_np[5], label="Omega", color="purple")
+    # axs[1, 2].set_ylabel("Omega")
+
+
+    # for ax in axs.flat:
+    #     ax.set_xlabel("Date")
+    #     ax.tick_params(axis="x", rotation=45)
+
+    # plt.tight_layout()
+    # plt.savefig("../../reports/figures/time_varying_parameters.pdf")
+    # plt.show()
+    
+    
+
+    fig, axs = plt.subplots(2, 3, figsize=(20, 10), sharex=True)
     parameters_np = [p.cpu().numpy() for p in parameters]
 
-    axs[0].plot(dates, parameters_np[0], label="Beta", color="purple")
-    axs[0].set_ylabel("Beta")
+    # Define the LaTeX labels for the parameters
+    latex_labels = [r'$\beta$', r'$\gamma_c$', r'$\delta_c$', r'$\eta$', r'$\mu$', r'$\omega$']
+    colors = ["purple"] * 6  # Use a list for colors in case you want to customize further
 
-    axs[1].plot(dates, parameters_np[1], label="Gamma_c", color="purple")
-    axs[1].set_ylabel("Gamma_c")
+    # Plot each parameter with its corresponding label
+    for i, (ax, param, label, color) in enumerate(zip(axs.flat, parameters_np, latex_labels, colors)):
+        ax.plot(dates, param, label=label, color=color)
+        ax.set_ylabel(label, fontsize=14)
+        ax.set_xlabel("Date", fontsize=12)
+        ax.tick_params(axis='x', rotation=45)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.legend(fontsize=12)
 
-    axs[2].plot(dates, parameters_np[2], label="Delta_c", color="purple")
-    axs[2].set_ylabel("Delta_c")
-
-    axs[3].plot(dates, parameters_np[3], label="Eta", color="purple")
-    axs[3].set_ylabel("Eta")
-    
-    axs[4].plot(dates, parameters_np[4], label="Mu", color="purple")
-    axs[4].set_ylabel("Mu")
-
-    for ax in axs.flat:
-        ax.set_xlabel("Date")
-        ax.tick_params(axis="x", rotation=45)
-
-    plt.tight_layout()
-    plt.savefig("../../reports/figures/time_varying_parameters.pdf")
+    # Adjust layout and save the figure
+    plt.tight_layout(pad=2.0)
+    plt.savefig("../../reports/figures/time_varying_parameters.pdf", bbox_inches='tight')
     plt.show()
 
     return parameters_np, observed_model_output_scaled
 
 parameters_np, observed_model_output_scaled = plot_outputs(model, time_stamps, parameter_net, data, device, scaler)
 
-# Calculate R_t and R_c
-beta, gamma_c, delta_c, eta, mu = parameters_np
+# Evaluate the predictions on the observed data
+I, H, C, D = prepare_tensors(data, device)
+I_pred, H_pred, C_pred, D_pred = observed_model_output_scaled[:, 0], observed_model_output_scaled[:, 1], observed_model_output_scaled[:, 2], observed_model_output_scaled[:, 3]
 
-def calculate_R_t(beta, gamma_c, delta_c, eta, mu, S, N, alpha, rho, ds, da):
-    return beta / (gamma_c + delta_c + eta + mu)
+# Collect metrics
+metrics = []
 
-# Calculate R_t and R_c over time
-S = observed_model_output_scaled[:, 0]
-N = 1
-alpha = 1 / 5
-rho = 0.80
-ds = 1 / 4
-da = 1 / 7
+# Calculate and print errors for each metric
+metric_names = ["NRMSE", "MASE", "MAE", "MAPE"]
+areas = ["Infections", "Hospitalizations", "Critical", "Deaths"]
+observed_data = [I.cpu().numpy(), H.cpu().numpy(), C.cpu().numpy(), D.cpu().numpy()]
+predicted_data = [I_pred, H_pred, C_pred, D_pred]
+train_data = [data["daily_confirmed"].values, data["daily_hospitalized"].values, data["covidOccupiedMVBeds"].values, data["daily_deceased"].values]
 
-R_t = calculate_R_t(beta, gamma_c, delta_c, eta, mu, S, N, alpha, rho, ds, da)
-
-fig, ax = plt.subplots(figsize=(12, 6))
-ax.plot(data["date"], R_t, label="R_t", color="purple")
-ax.axhline(y=1, color="red", linestyle="--", label="R_t = 1")
-ax.set_xlabel("Date")
-ax.set_ylabel("R_t")
-ax.tick_params(axis="x", rotation=45)
-plt.tight_layout()
-# plt.savefig("../../reports/figures/R_t.pdf")
-plt.show()
-
-# Calculate the effective reproduction number
-def calculate_R_eff(beta, gamma_c, delta_c, eta, mu, S, N, alpha, rho, ds, da):
-    return beta * (rho * alpha * S + (1 - rho) * alpha * S) / (gamma_c + delta_c + eta + mu)
-
-# Calculate R_eff over time
-R_eff = calculate_R_eff(beta, gamma_c, delta_c, eta, mu, S, N, alpha, rho, ds, da)
-
-fig, ax = plt.subplots(figsize=(12, 6))
-ax.plot(data["date"], R_eff, label="R_eff", color="purple")
-ax.axhline(y=1, color="red", linestyle="--", label="R_eff = 1")
-ax.set_xlabel("Date")
-ax.set_ylabel("R_eff")
-ax.tick_params(axis="x", rotation=45)
-plt.tight_layout()
-# plt.savefig("../../reports/figures/R_eff.pdf")
-plt.show()
-
-
-# Evaluate model effectiveness
-def evaluate_model(actual, predicted):
-    mape = mean_absolute_percentage_error(actual, predicted)
-    nrmse = normalized_root_mean_square_error(actual, predicted)
-    mase = safe_mean_absolute_scaled_error(actual, predicted, actual)
-    rmse = np.sqrt(mean_squared_error(actual, predicted))
-    mae = mean_absolute_error(actual, predicted)
-    mse = mean_squared_error(actual, predicted)
-
-    print(f"Mean Absolute Percentage Error (MAPE): {mape:.2f}%")
+for obs, pred, train, area in zip(observed_data, predicted_data, train_data, areas):
+    nrmse, mase, mae, mape = calculate_errors(obs, pred, train)
+    print(f"Metrics for {area}:")
     print(f"Normalized Root Mean Square Error (NRMSE): {nrmse:.4f}")
     print(f"Mean Absolute Scaled Error (MASE): {mase:.4f}")
-    print(f"Root Mean Square Error (RMSE): {rmse:.4f}")
     print(f"Mean Absolute Error (MAE): {mae:.4f}")
-    print(f"Mean Squared Error (MSE): {mse:.4f}")
+    print(f"Mean Absolute Percentage Error (MAPE): {mape:.4f}")
 
-    return mape, nrmse, mase, rmse, mae, mse
+    metrics.append([f"{area}_NRMSE", nrmse])
+    metrics.append([f"{area}_MASE", mase])
+    metrics.append([f"{area}_MAE", mae])
+    metrics.append([f"{area}_MAPE", mape])
 
-# Evaluate on all states
-actual_confirmed = data["daily_confirmed"].values
-predicted_confirmed = observed_model_output_scaled[:, 0]
-evaluate_model(actual_confirmed, predicted_confirmed)
-
-actual_hospitalized = data["daily_hospitalized"].values
-predicted_hospitalized = observed_model_output_scaled[:, 1]
-evaluate_model(actual_hospitalized, predicted_hospitalized)
-
-actual_critical = data["covidOccupiedMVBeds"].values
-predicted_critical = observed_model_output_scaled[:, 2]
-evaluate_model(actual_critical, predicted_critical)
-
-actual_deceased = data["daily_deceased"].values
-predicted_deceased = observed_model_output_scaled[:, 3]
-evaluate_model(actual_deceased, predicted_deceased)
+# Save metrics to CSV
+save_metrics(metrics, "England")
