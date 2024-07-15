@@ -15,16 +15,12 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
-# import sys
-# sys.path.append(os.path.join('../../pyblish', 'plots'))
-# import publish
 
 # Ensure necessary directories exist
 os.makedirs("../../models", exist_ok=True)
 os.makedirs("../../reports/figures", exist_ok=True)
 os.makedirs("../../reports/results", exist_ok=True)
 os.makedirs("../../reports/England", exist_ok=True)
-
 
 # Set random seed for reproducibility
 seed = 42
@@ -34,7 +30,6 @@ if torch.cuda.is_available():
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 np.random.seed(seed)
-
 
 def check_pytorch():
     """Check PyTorch and CUDA setup."""
@@ -50,9 +45,7 @@ def check_pytorch():
     else:
         print("CUDA not available. PyTorch will run on CPU.")
 
-
 check_pytorch()
-
 
 # Device setup for CUDA or CPU
 def get_device():
@@ -62,7 +55,6 @@ def get_device():
             if torch.cuda.get_device_name(i):
                 return torch.device(f"cuda:{i}")
     return torch.device("cpu")
-
 
 device = get_device()
 print(f"Using device: {device}")
@@ -82,8 +74,8 @@ plt.rc('axes', prop_cycle=monochrome)
 # Update matplotlib rcParams for consistent plot settings
 plt.rcParams.update({
     "font.family": "serif",
-    "font.size": 14,
-    "figure.figsize": [8, 5],
+    "font.size": 16,
+    "figure.figsize": [12, 8],
     "text.usetex": False,
     "figure.facecolor": "white",
     "figure.autolayout": True,
@@ -93,31 +85,31 @@ plt.rcParams.update({
     "savefig.bbox": "tight",
     "axes.labelweight": "bold",
     "axes.titleweight": "bold",
-    "axes.labelsize": 12,
+    "axes.labelsize": 16,
     "axes.titlesize": 18,
     "axes.facecolor": "white",
     "axes.grid": False,
-    "axes.spines.top": False,
-    "axes.spines.right": False,
+    "axes.spines.top": True,
+    "axes.spines.right": True,
     "axes.formatter.limits": (0, 5),
     "axes.formatter.use_mathtext": True,
     "axes.formatter.useoffset": False,
     "axes.xmargin": 0,
     "axes.ymargin": 0,
-    "legend.fontsize": 12,
-    "legend.frameon": False,
+    "legend.fontsize": 14,
+    "legend.frameon": True,
     "legend.loc": "best",
-    "lines.linewidth": 2,
-    "lines.markersize": 8,
-    "xtick.labelsize": 12,
+    "lines.linewidth": 2.5,
+    "lines.markersize": 10,
+    "xtick.labelsize": 14,
     "xtick.direction": "in",
-    "xtick.top": False,
-    "ytick.labelsize": 12,
+    "xtick.top": True,
+    "ytick.labelsize": 14,
     "ytick.direction": "in",
-    "ytick.right": False,
+    "ytick.right": True,
     "grid.color": "grey",
     "grid.linestyle": "--",
-    "grid.linewidth": 0.5,
+    "grid.linewidth": 0.75,
     "errorbar.capsize": 4,
     "figure.subplot.wspace": 0.4,
     "figure.subplot.hspace": 0.4,
@@ -136,7 +128,6 @@ plt.rcParams.update({
     "figure.subplot.bottom": 0.1,
     "figure.subplot.top": 0.9
 })
-
 
 def normalized_root_mean_square_error(y_true, y_pred):
     """Calculate the Normalized Root Mean Square Error (NRMSE)."""
@@ -183,8 +174,6 @@ def seird_model(
 
     return [dSdt, dEdt, dIsdt, dIadt, dHdt, dCdt, dRdt, dDdt]
 
-
-
 def load_and_preprocess_data(
     filepath, areaname, rolling_window=7, start_date="2020-04-01", end_date="2021-08-31"
 ):
@@ -230,7 +219,6 @@ def load_and_preprocess_data(
 
     return df
 
-
 data = load_and_preprocess_data(
     "../../data/processed/england_data.csv",
     "England",
@@ -238,7 +226,6 @@ data = load_and_preprocess_data(
     start_date="2020-01-01",
     end_date="2021-12-31",
 )
-
 
 def prepare_tensors(data, device):
     """Prepare tensors for training."""
@@ -379,15 +366,6 @@ def einn_loss(model_output, tensor_data, parameters, t):
     da = 1 / 7
     dH = 1 / 13.4
     
-    # S0 = 1 - Is_data[0] - H_data[0] - C_data[0] - D_data[0]
-    # E0 = 0
-    # Is0 = Is_data[0]
-    # Ia0 = 0
-    # H0 = H_data[0]
-    # C0 = C_data[0]
-    # R0 = 0
-    # D0 = D_data[0]
-
     beta_pred, gamma_c_pred, delta_c_pred, eta_pred, mu_pred, omega_pred = parameters
 
     S_t = grad(S_pred, t, grad_outputs=torch.ones_like(S_pred), create_graph=True, retain_graph=True)[0]
@@ -399,7 +377,7 @@ def einn_loss(model_output, tensor_data, parameters, t):
     R_t = grad(R_pred, t, grad_outputs=torch.ones_like(R_pred), create_graph=True, retain_graph=True)[0]
     D_t = grad(D_pred, t, grad_outputs=torch.ones_like(D_pred), create_graph=True, retain_graph=True)[0]
 
-    dSdt, dEdt, dIadt, dIsdt, dHdt, dCdt, dRdt, dDdt = seird_model(
+    dSdt, dEdt, dIsdt, dIadt, dHdt, dCdt, dRdt, dDdt = seird_model(
         [S_pred, E_pred, Is_pred, Ia_pred, H_pred, C_pred, R_pred, D_pred],
         t, N, beta_pred, alpha, rho, ds, da, omega_pred, dH, mu_pred, gamma_c_pred, delta_c_pred, eta_pred
     )
@@ -407,8 +385,6 @@ def einn_loss(model_output, tensor_data, parameters, t):
     data_loss = nn.MSELoss()(Is_pred, Is_data) + nn.MSELoss()(H_pred, H_data) + nn.MSELoss()(C_pred, C_data) + nn.MSELoss()(D_pred, D_data)
     
     residual_loss = nn.MSELoss()(S_t, dSdt) + nn.MSELoss()(E_t, dEdt) + nn.MSELoss()(Ia_t, dIadt) + nn.MSELoss()(Is_t, dIsdt) + nn.MSELoss()(H_t, dHdt) + nn.MSELoss()(C_t, dCdt) + nn.MSELoss()(R_t, dRdt) + nn.MSELoss()(D_t, dDdt)
-
-    # initial_loss = nn.MSELoss()(S_pred[0], S0) + nn.MSELoss()(E_pred[0], E0) + nn.MSELoss()(Is_pred[0], Is0) + nn.MSELoss()(Ia_pred[0], Ia0) + nn.MSELoss()(H_pred[0], H0) + nn.MSELoss()(C_pred[0], C0) + nn.MSELoss()(R_pred[0], R0) + nn.MSELoss()(D_pred[0], D0)
 
     loss = data_loss + residual_loss
     return loss
@@ -490,22 +466,18 @@ def train_model(
 
     return train_losses
 
-
 # Initialize model, optimizer, and scheduler
-model = EpiNet(num_layers=5, hidden_neurons=32, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=3, hidden_neurons=32).to(device)
+model = EpiNet(num_layers=5, hidden_neurons=20, output_size=8).to(device)
+parameter_net = ParameterNet(num_layers=2, hidden_neurons=20).to(device)
 optimizer = optim.Adam(
-    list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4
+    list(model.parameters()) + list(parameter_net.parameters()), lr=2e-4
 )
 
-scheduler = StepLR(optimizer, step_size=5000, gamma=0.9)
-
+scheduler = StepLR(optimizer, step_size=5000, gamma=0.998)
 
 # Early stopping
 early_stopping = EarlyStopping(patience=150, verbose=False)
 
-# Create timestamps tensor
-# time_stamps = torch.tensor(np.arange(1, len(data) + 1), dtype=torch.float32).view(-1, 1).to(device).requires_grad_(True)
 # Create timestamps tensor
 time_stamps = (
     torch.tensor(data.index.values, dtype=torch.float32)
@@ -528,17 +500,25 @@ train_losses = train_model(
 
 # Plot training loss
 plt.plot(train_losses, label="Train Loss")
-plt.xlabel("Epoch")
+plt.xlabel("Epoch", fontsize=16, weight='bold')
 plt.yscale("log")
-plt.ylabel("Loss")
-plt.title("Training Loss over Epochs")
-plt.legend()
+plt.ylabel("Loss", fontsize=16, weight='bold')
+plt.title("Training Loss over Epochs", fontsize=18, weight='bold')
+plt.legend(fontsize=14)
+plt.grid(True)
 plt.savefig("../../reports/figures/training_loss.pdf")
+plt.savefig("../../reports/figures/training_loss.png")  # Save as PNG
 plt.show()
 
 # Save the trained model
 torch.save(model.state_dict(), "../../models/epinet_model.pth")
 torch.save(parameter_net.state_dict(), "../../models/parameter_net.pth")
+
+
+# load the trained model
+
+model.load_state_dict(torch.load("../../models/epinet_model.pth"))
+parameter_net.load_state_dict(torch.load("../../models/parameter_net.pth"))
 
 def plot_outputs(model, t, parameter_net, data, device, scaler):
     model.eval()
@@ -562,51 +542,61 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
     observed_model_output_scaled = scaler.inverse_transform(observed_model_output)
     dates = data["date"]
 
-    fig, axs = plt.subplots(1, 4, figsize=(24, 6), sharex=True)
-    axs[0].plot(dates, data["daily_confirmed"], color="blue")
-    axs[0].plot(dates, observed_model_output_scaled[:, 0], linestyle="--", color="red")
-    axs[0].set_ylabel("New Confirmed Cases")
+    fig, axs = plt.subplots(1, 4, figsize=(20, 8), sharex=True)
+    axs[0].plot(dates, data["daily_confirmed"], color="blue", linewidth=2.5)
+    axs[0].plot(dates, observed_model_output_scaled[:, 0], linestyle="--", color="red", linewidth=2.5)
+    axs[0].set_ylabel("New Confirmed Cases", fontsize=18, weight='bold')
+    axs[0].set_xlabel("Date", fontsize=18, weight='bold')
 
-    axs[1].plot(dates, data["daily_hospitalized"], color="blue")
-    axs[1].plot(dates, observed_model_output_scaled[:, 1], linestyle="--", color="red")
-    axs[1].set_ylabel("New Admissions")
+    axs[1].plot(dates, data["daily_hospitalized"], color="blue", linewidth=2.5)
+    axs[1].plot(dates, observed_model_output_scaled[:, 1], linestyle="--", color="red", linewidth=2.5)
+    axs[1].set_ylabel("New Admissions", fontsize=18, weight='bold')
+    axs[1].set_xlabel("Date", fontsize=18, weight='bold')
 
-    axs[2].plot(dates, data["covidOccupiedMVBeds"], color="blue")
-    axs[2].plot(dates, observed_model_output_scaled[:, 2], linestyle="--", color="red")
-    axs[2].set_ylabel("Critical Cases")
+    axs[2].plot(dates, data["covidOccupiedMVBeds"], color="blue", linewidth=2.5)
+    axs[2].plot(dates, observed_model_output_scaled[:, 2], linestyle="--", color="red", linewidth=2.5)
+    axs[2].set_ylabel("Critical Cases", fontsize=18, weight='bold')
+    axs[2].set_xlabel("Date", fontsize=18, weight='bold')
 
-    axs[3].plot(dates, data["daily_deceased"], color="blue")
-    axs[3].plot(dates, observed_model_output_scaled[:, 3], linestyle="--", color="red")
-    axs[3].set_ylabel("New Deaths")
+    axs[3].plot(dates, data["daily_deceased"], color="blue", linewidth=2.5)
+    axs[3].plot(dates, observed_model_output_scaled[:, 3], linestyle="--", color="red", linewidth=2.5)
+    axs[3].set_ylabel("New Deaths", fontsize=18, weight='bold')
+    axs[3].set_xlabel("Date", fontsize=18, weight='bold')
 
     for ax in axs:
-        ax.set_xlabel("Date")
-        ax.tick_params(axis="x", rotation=45)
-        ax.legend(["Observed", "Predicted"])
+        ax.tick_params(axis="x", rotation=45, labelsize=14)
+        ax.tick_params(axis="y", labelsize=14)
+        ax.legend(["Observed", "Predicted"], fontsize=14)
 
     plt.tight_layout()
     plt.savefig("../../reports/figures/observed_vs_predicted.pdf")
+    plt.savefig("../../reports/figures/observed_vs_predicted.png")  # Save as PNG
     plt.show()
 
-    fig, axs = plt.subplots(1, 4, figsize=(24, 6), sharex=True)
-    axs[0].plot(dates, model_output[:, 0].cpu(), label="Susceptible", color="green")
-    axs[0].set_ylabel("Susceptible")
+    fig, axs = plt.subplots(1, 4, figsize=(20, 8), sharex=True)
+    axs[0].plot(dates, model_output[:, 0].cpu(), label="Susceptible", color="green", linewidth=2.5)
+    axs[0].set_ylabel("Susceptible", fontsize=16, weight='bold')
+    axs[0].set_xlabel("Date", fontsize=16, weight='bold')
 
-    axs[1].plot(dates, model_output[:, 1].cpu(), label="Exposed", color="green")
-    axs[1].set_ylabel("Exposed")
+    axs[1].plot(dates, model_output[:, 1].cpu(), label="Exposed", color="green", linewidth=2.5)
+    axs[1].set_ylabel("Exposed", fontsize=16, weight='bold')
+    axs[1].set_xlabel("Date", fontsize=16, weight='bold')
 
-    axs[2].plot(dates, model_output[:, 3].cpu(), label="Asymptomatic", color="green")
-    axs[2].set_ylabel("Asymptomatic")
+    axs[2].plot(dates, model_output[:, 3].cpu(), label="Asymptomatic", color="green", linewidth=2.5)
+    axs[2].set_ylabel("Asymptomatic", fontsize=16, weight='bold')
+    axs[2].set_xlabel("Date", fontsize=16, weight='bold')
 
-    axs[3].plot(dates, model_output[:, 6].cpu(), label="Recovered", color="green")
-    axs[3].set_ylabel("Recovered")
+    axs[3].plot(dates, model_output[:, 6].cpu(), label="Recovered", color="green", linewidth=2.5)
+    axs[3].set_ylabel("Recovered", fontsize=16, weight='bold')
+    axs[3].set_xlabel("Date", fontsize=16, weight='bold')
 
     for ax in axs:
-        ax.set_xlabel("Date")
-        ax.tick_params(axis="x", rotation=45)
+        ax.tick_params(axis="x", rotation=45, labelsize=14)
+        ax.tick_params(axis="y", labelsize=14)
 
     plt.tight_layout()
     plt.savefig("../../reports/figures/unobserved_outputs.pdf")
+    plt.savefig("../../reports/figures/unobserved_outputs.png")  # Save as PNG
     plt.show()
 
     fig, axs = plt.subplots(2, 3, figsize=(20, 10), sharex=True)
@@ -618,16 +608,19 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
 
     # Plot each parameter with its corresponding label
     for i, (ax, param, label, color) in enumerate(zip(axs.flat, parameters_np, latex_labels, colors)):
-        ax.plot(dates, param, label=label, color=color)
-        ax.set_ylabel(label, fontsize=14)
-        ax.set_xlabel("Date", fontsize=12)
-        ax.tick_params(axis='x', rotation=45)
+        ax.plot(dates, param, label=label, color=color, linewidth=2.5)
+        ax.set_ylabel(label, fontsize=16, weight='bold')
+        ax.set_xlabel("Date", fontsize=16, weight='bold')
+        ax.tick_params(axis='x', rotation=45, labelsize=14)
+        ax.tick_params(axis='y', labelsize=14)
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        ax.legend(fontsize=12)
+        ax.legend(fontsize=14)
+
 
     # Adjust layout and save the figure
     plt.tight_layout(pad=2.0)
     plt.savefig("../../reports/figures/time_varying_parameters.pdf", bbox_inches='tight')
+    plt.savefig("../../reports/figures/time_varying_parameters.png", bbox_inches='tight')  # Save as PNG
     plt.show()
 
     return parameters_np, observed_model_output_scaled
