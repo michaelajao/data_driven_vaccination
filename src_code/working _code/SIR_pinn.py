@@ -113,7 +113,7 @@ df = load_and_preprocess_data("../../data/processed/england_data.csv", start_dat
 # training_data = df.loc[mask]
 
 transformer = MinMaxScaler()
-columns_to_scale = ["daily_confirmed", "daily_deceased"]
+columns_to_scale = ["cumulative_confirmed", "cumulative_deceased"]
 transformer.fit(df[columns_to_scale])
 df[columns_to_scale] = transformer.transform(df[columns_to_scale])
 
@@ -121,8 +121,8 @@ N = df["population"].values[0]
 
 # Convert columns to tensors
 t_data = torch.tensor(range(len(df)), dtype=torch.float32).view(-1, 1).requires_grad_(True).to(device)
-I_data = torch.tensor(df["daily_confirmed"].values, dtype=torch.float32).view(-1, 1).to(device)
-D_data = torch.tensor(df["daily_deceased"].values, dtype=torch.float32).view(-1, 1).to(device)
+I_data = torch.tensor(df["cumulative_confirmed"].values, dtype=torch.float32).view(-1, 1).to(device)
+D_data = torch.tensor(df["cumulative_deceased"].values, dtype=torch.float32).view(-1, 1).to(device)
 SIR_tensor = torch.cat([I_data, D_data], dim=1).to(device)
 
 class ParamNet(nn.Module):

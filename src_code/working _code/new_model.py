@@ -542,7 +542,7 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
     observed_model_output_scaled = scaler.inverse_transform(observed_model_output)
     dates = data["date"]
 
-    fig, axs = plt.subplots(1, 4, figsize=(20, 8), sharex=True)
+    fig, axs = plt.subplots(1, 4, figsize=(15, 5), sharex=True)
     axs[0].plot(dates, data["daily_confirmed"], color="blue", linewidth=2.5)
     axs[0].plot(dates, observed_model_output_scaled[:, 0], linestyle="--", color="red", linewidth=2.5)
     axs[0].set_ylabel("New Confirmed Cases", fontsize=18, weight='bold')
@@ -573,7 +573,7 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
     plt.savefig("../../reports/figures/observed_vs_predicted.png")  # Save as PNG
     plt.show()
 
-    fig, axs = plt.subplots(1, 4, figsize=(20, 8), sharex=True)
+    fig, axs = plt.subplots(1, 4, figsize=(15, 5), sharex=True)
     axs[0].plot(dates, model_output[:, 0].cpu(), label="Susceptible", color="green", linewidth=2.5)
     axs[0].set_ylabel("Susceptible", fontsize=16, weight='bold')
     axs[0].set_xlabel("Date", fontsize=16, weight='bold')
