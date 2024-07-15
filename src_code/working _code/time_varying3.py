@@ -13,53 +13,77 @@ from scipy.integrate import solve_ivp
 
 from sklearn.preprocessing import MinMaxScaler
 from tqdm.notebook import tqdm
+from cycler import cycler
 
-# Set the random seed for reproducibility
-plt.style.use("seaborn-v0_8-poster")
-plt.rcParams.update(
-    {
-        "font.size": 14,
-        "text.usetex": False,
-        "figure.figsize": [8, 4],
-        "figure.facecolor": "white",
-        "figure.autolayout": True,
-        "figure.dpi": 400,
-        "savefig.dpi": 400,
-        "savefig.format": "pdf",
-        "savefig.bbox": "tight",
-        "axes.labelweight": "bold",
-        "axes.titleweight": "bold",
-        "axes.labelsize": 12,
-        "axes.titlesize": 18,
-        "axes.facecolor": "white",
-        "axes.grid": True,
-        "axes.spines.top": False,
-        "axes.spines.right": False,
-        "axes.formatter.limits": (0, 5),
-        "axes.formatter.use_mathtext": True,
-        "axes.formatter.useoffset": False,
-        "axes.xmargin": 0,
-        "axes.ymargin": 0,
-        "legend.fontsize": 12,
-        "legend.frameon": False,
-        "legend.loc": "best",
-        "lines.linewidth": 2,
-        "lines.markersize": 8,
-        "xtick.labelsize": 12,
-        "xtick.direction": "in",
-        "xtick.top": False,
-        "ytick.labelsize": 12,
-        "ytick.direction": "in",
-        "ytick.right": False,
-        "grid.color": "grey",
-        "grid.linestyle": "--",
-        "grid.linewidth": 0.5,
-        "errorbar.capsize": 4,
-        "figure.subplot.wspace": 0.4,
-        "figure.subplot.hspace": 0.4,
-        "image.cmap": "viridis",
-    }
-)
+# Set a specific style for research paper quality plots
+plt.style.use("seaborn-v0_8-paper")
+
+# Customizing color cycle with monochrome settings for clarity in black-and-white printing
+mark_every = 0.1
+monochrome = (cycler('color', ['k']) *
+              cycler('markevery', [mark_every]) *
+              cycler('marker', ['', 'o', '^', 's', 'v']) *
+              cycler('linestyle', ['-', '--', ':', (0, (5, 2, 5, 5, 1, 4))]))
+
+plt.rc('axes', prop_cycle=monochrome)
+
+# Update matplotlib rcParams for consistent plot settings
+plt.rcParams.update({
+    "font.family": "serif",
+    "font.size": 16,
+    "figure.figsize": [8, 5],
+    "text.usetex": False,
+    "figure.facecolor": "white",
+    "figure.autolayout": True,
+    "figure.dpi": 600,
+    "savefig.dpi": 600,
+    "savefig.format": "pdf",
+    "savefig.bbox": "tight",
+    "axes.labelweight": "bold",
+    "axes.titleweight": "bold",
+    "axes.labelsize": 16,
+    "axes.titlesize": 18,
+    "axes.facecolor": "white",
+    "axes.grid": False,
+    "axes.spines.top": True,
+    "axes.spines.right": True,
+    "axes.formatter.limits": (0, 5),
+    "axes.formatter.use_mathtext": True,
+    "axes.formatter.useoffset": False,
+    "axes.xmargin": 0,
+    "axes.ymargin": 0,
+    "legend.fontsize": 14,
+    "legend.frameon": True,
+    "legend.loc": "best",
+    "lines.linewidth": 2.5,
+    "lines.markersize": 10,
+    "xtick.labelsize": 14,
+    "xtick.direction": "in",
+    "xtick.top": True,
+    "ytick.labelsize": 14,
+    "ytick.direction": "in",
+    "ytick.right": True,
+    "grid.color": "grey",
+    "grid.linestyle": "--",
+    "grid.linewidth": 0.75,
+    "errorbar.capsize": 4,
+    "figure.subplot.wspace": 0.4,
+    "figure.subplot.hspace": 0.4,
+    "image.cmap": "viridis",
+    "lines.antialiased": True,
+    "patch.antialiased": True,
+    "text.antialiased": True,
+    "pdf.fonttype": 42,
+    "ps.fonttype": 42,
+    "axes.labelpad": 10,
+    "axes.titlepad": 15,
+    "xtick.major.pad": 5,
+    "ytick.major.pad": 5,
+    "figure.subplot.left": 0.1,
+    "figure.subplot.right": 0.95,
+    "figure.subplot.bottom": 0.1,
+    "figure.subplot.top": 0.9
+})
 
 # Device setup for CUDA or CPU
 device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")

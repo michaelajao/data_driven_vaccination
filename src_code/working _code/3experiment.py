@@ -523,7 +523,7 @@ plt.savefig("../../reports/figures/training_loss.png")  # Save as PNG
 plt.show()
 
 # Save the trained model
-torch.save(model.state_dict(), "../../models/epinet3_model.pth")
+torch.save(model.state_dict(), "../../models/epinet_model3.pth")
 torch.save(parameter_net.state_dict(), "../../models/parameter_net3.pth")
 
 # load the trained model
