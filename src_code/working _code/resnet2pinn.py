@@ -15,7 +15,7 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 from torchsummary import summary
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
 
 # Ensure necessary directories exist
 os.makedirs("../../models", exist_ok=True)
@@ -143,29 +143,6 @@ def safe_mean_absolute_scaled_error(y_true, y_pred, y_train, epsilon=1e-10):
     d = max(d, epsilon)
     errors = np.abs(y_true - y_pred)
     return errors.mean() / d
-
-def mean_absolute_percentage_error(y_true, y_pred):
-    """
-    Calculate the Mean Absolute Percentage Error (MAPE).
-    
-    Args:
-    y_true (numpy.ndarray): Array of true values.
-    y_pred (numpy.ndarray): Array of predicted values.
-    
-    Returns:
-    float: MAPE value.
-    """
-    # Ensure the arrays are numpy arrays
-    y_true, y_pred = np.array(y_true), np.array(y_pred)
-    
-    # Calculate the absolute percentage errors
-    abs_percentage_errors = np.abs((y_true - y_pred) / y_true) * 100
-    
-    # Calculate the mean of these errors
-    mape = np.mean(abs_percentage_errors)
-    
-    return mape
-
 
 def calculate_errors(y_true, y_pred, y_train):
     """Calculate and return various error metrics."""
@@ -299,39 +276,47 @@ features = [
 data_scaled, scaler = scale_data(data, features, device)
 
 
+class ResidualBlock(nn.Module):
+    def __init__(self, hidden_neurons):
+        super(ResidualBlock, self).__init__()
+        self.layer = nn.Sequential(
+            nn.Linear(hidden_neurons, hidden_neurons),
+            nn.Tanh(),
+            nn.Linear(hidden_neurons, hidden_neurons),
+        )
+        self.activation = nn.Tanh()
+
+    def forward(self, x):
+        return self.activation(x + self.layer(x))
+
 class EpiNet(nn.Module):
     def __init__(self, num_layers=2, hidden_neurons=10, output_size=8):
         super(EpiNet, self).__init__()
         self.retain_seed = 100
         torch.manual_seed(self.retain_seed)
 
-        # Input layer
         layers = [nn.Linear(1, hidden_neurons), nn.Tanh()]
 
-        # Hidden layers
-        for _ in range(num_layers - 1):
-            layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
+        # for _ in range(num_layers - 1):
+        #     layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
+        # Residual blocks
+        for _ in range(num_layers):
+            layers.append(ResidualBlock(hidden_neurons))
+        
 
-        # Output layer
         layers.append(nn.Linear(hidden_neurons, output_size))
         self.net = nn.Sequential(*layers)
 
-        # Initialize weights using Xavier initialization
-        self.init_xavier()
+        self.init_weights()
 
     def forward(self, t):
         return torch.sigmoid(self.net(t))
 
-    def init_xavier(self):
-        def init_weights(layer):
+    def init_weights(self):
+        for layer in self.net:
             if isinstance(layer, nn.Linear):
-                g = nn.init.calculate_gain("tanh")
-                nn.init.xavier_normal_(layer.weight, gain=g)
-                if layer.bias is not None:
-                    layer.bias.data.fill_(0.01)
-
-        # Apply the weight initialization to the network
-        self.net.apply(init_weights)
+                nn.init.xavier_normal_(layer.weight, gain=nn.init.calculate_gain('tanh'))
+                nn.init.constant_(layer.bias, 0.01)
 
 class ParameterNet(nn.Module):
     def __init__(self, num_layers=2, hidden_neurons=10, output_size=6):
@@ -347,7 +332,7 @@ class ParameterNet(nn.Module):
         layers.append(nn.Linear(hidden_neurons, output_size))
         self.net = nn.Sequential(*layers)
 
-        self.init_xavier()
+        self.init_weights()
 
     def forward(self, t):
         return self.net(t)
@@ -355,7 +340,6 @@ class ParameterNet(nn.Module):
     def get_parameters(self, t):
         raw_parameters = self.net(t)
 
-        # Apply the sigmoid function followed by a linear transformation
         beta = torch.sigmoid(raw_parameters[:, 0])
         gamma_c = torch.sigmoid(raw_parameters[:, 1])
         delta_c = torch.sigmoid(raw_parameters[:, 2]) 
@@ -365,17 +349,12 @@ class ParameterNet(nn.Module):
 
         return beta, gamma_c, delta_c, eta, mu, omega
 
-    def init_xavier(self):
-        def init_weights(layer):
+    def init_weights(self):
+        for layer in self.net:
             if isinstance(layer, nn.Linear):
-                g = nn.init.calculate_gain("tanh")
-                nn.init.xavier_normal_(layer.weight, gain=g)
-                if layer.bias is not None:
-                    layer.bias.data.fill_(0.01)
-
-        # Apply the weight initialization to the network
-        self.net.apply(init_weights)
-
+                nn.init.xavier_normal_(layer.weight, gain=nn.init.calculate_gain('tanh'))
+                nn.init.constant_(layer.bias, 0.01)
+                
 def einn_loss(model_output, tensor_data, parameters, t):
     S_pred, E_pred, Is_pred, Ia_pred, H_pred, C_pred, R_pred, D_pred = (
         model_output[:, 0], model_output[:, 1], model_output[:, 2], model_output[:, 3],
@@ -494,10 +473,10 @@ def train_model(
     return train_losses
 
 # Initialize model, optimizer, and scheduler
-model = EpiNet(num_layers=5, hidden_neurons=20, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=1, hidden_neurons=15, output_size=6).to(device)
+model = EpiNet(num_layers=4, hidden_neurons=20, output_size=8).to(device)
+parameter_net = ParameterNet(num_layers=1, hidden_neurons=20, output_size=6).to(device)
 optimizer = optim.AdamW(
-    list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4, weight_decay=1e-2
+    list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4
 )
 
 summary(model, (1,))
@@ -540,14 +519,14 @@ plt.savefig("../../reports/figures/training_loss.png")  # Save as PNG
 plt.show()
 
 # Save the trained model
-torch.save(model.state_dict(), "../../models/epinet_model.pth")
-torch.save(parameter_net.state_dict(), "../../models/parameter_net.pth")
+torch.save(model.state_dict(), "../../models/epinet_model2.pth")
+torch.save(parameter_net.state_dict(), "../../models/parameter_net2.pth")
 
 
 # load the trained model
 
-model.load_state_dict(torch.load("../../models/epinet_model.pth"))
-parameter_net.load_state_dict(torch.load("../../models/parameter_net.pth"))
+model.load_state_dict(torch.load("../../models/epinet_model2.pth"))
+parameter_net.load_state_dict(torch.load("../../models/parameter_net2.pth"))
 
 def plot_outputs(model, t, parameter_net, data, device, scaler):
     model.eval()
@@ -668,18 +647,20 @@ metric_names = ["NRMSE", "MASE", "MAE", "MAPE"]
 areas = ["Infections", "Hospitalizations", "Critical", "Deaths"]
 observed_data = [I.cpu().numpy(), H.cpu().numpy(), C.cpu().numpy(), D.cpu().numpy()]
 predicted_data = [I_pred, H_pred, C_pred, D_pred]
+train_data = [data["daily_confirmed"].values, data["daily_hospitalized"].values, data["covidOccupiedMVBeds"].values, data["daily_deceased"].values]
 
-for area, observed, predicted in zip(areas, observed_data, predicted_data):
-    nrmse, mase, mae, mape = calculate_errors(observed, predicted, observed)
-    metrics.append([f"{area} {metric}" for metric in metric_names])
-    metrics.append([nrmse, mase, mae, mape])
-    
-    print(f"{area} Metrics:")
-    print(f"NRMSE: {nrmse:.4f}")
-    print(f"MASE: {mase:.4f}")
-    print(f"MAE: {mae:.4f}")
-    print(f"MAPE: {mape:.4f}")
-    print()
-    
-# Save metrics to a CSV file
+for obs, pred, train, area in zip(observed_data, predicted_data, train_data, areas):
+    nrmse, mase, mae, mape = calculate_errors(obs, pred, train)
+    print(f"Metrics for {area}:")
+    print(f"Normalized Root Mean Square Error (NRMSE): {nrmse:.4f}")
+    print(f"Mean Absolute Scaled Error (MASE): {mase:.4f}")
+    print(f"Mean Absolute Error (MAE): {mae:.4f}")
+    print(f"Mean Absolute Percentage Error (MAPE): {mape:.4f}")
+
+    metrics.append([f"{area}_NRMSE", nrmse])
+    metrics.append([f"{area}_MASE", mase])
+    metrics.append([f"{area}_MAE", mae])
+    metrics.append([f"{area}_MAPE", mape])
+
+# Save metrics to CSV
 save_metrics(metrics, "England")

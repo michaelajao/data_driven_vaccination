@@ -15,7 +15,7 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 from torchsummary import summary
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
 
 # Ensure necessary directories exist
 os.makedirs("../../models", exist_ok=True)
@@ -143,29 +143,6 @@ def safe_mean_absolute_scaled_error(y_true, y_pred, y_train, epsilon=1e-10):
     d = max(d, epsilon)
     errors = np.abs(y_true - y_pred)
     return errors.mean() / d
-
-def mean_absolute_percentage_error(y_true, y_pred):
-    """
-    Calculate the Mean Absolute Percentage Error (MAPE).
-    
-    Args:
-    y_true (numpy.ndarray): Array of true values.
-    y_pred (numpy.ndarray): Array of predicted values.
-    
-    Returns:
-    float: MAPE value.
-    """
-    # Ensure the arrays are numpy arrays
-    y_true, y_pred = np.array(y_true), np.array(y_pred)
-    
-    # Calculate the absolute percentage errors
-    abs_percentage_errors = np.abs((y_true - y_pred) / y_true) * 100
-    
-    # Calculate the mean of these errors
-    mape = np.mean(abs_percentage_errors)
-    
-    return mape
-
 
 def calculate_errors(y_true, y_pred, y_train):
     """Calculate and return various error metrics."""
@@ -298,7 +275,6 @@ features = [
 # Split and scale the data
 data_scaled, scaler = scale_data(data, features, device)
 
-
 class EpiNet(nn.Module):
     def __init__(self, num_layers=2, hidden_neurons=10, output_size=8):
         super(EpiNet, self).__init__()
@@ -349,21 +325,33 @@ class ParameterNet(nn.Module):
 
         self.init_xavier()
 
-    def forward(self, t):
-        return self.net(t)
+        # Define constant parameters as learnable parameters
+        self.rho = nn.Parameter(torch.tensor(0.8))
+        self.alpha = nn.Parameter(torch.tensor(1 / 5))
+        self.ds = nn.Parameter(torch.tensor(1 / 4))
+        self.da = nn.Parameter(torch.tensor(1 / 7))
+        self.dH = nn.Parameter(torch.tensor(1 / 13.4))
 
-    def get_parameters(self, t):
+    def forward(self, t):
         raw_parameters = self.net(t)
 
-        # Apply the sigmoid function followed by a linear transformation
-        beta = torch.sigmoid(raw_parameters[:, 0])
-        gamma_c = torch.sigmoid(raw_parameters[:, 1])
-        delta_c = torch.sigmoid(raw_parameters[:, 2]) 
-        eta = torch.sigmoid(raw_parameters[:, 3]) 
-        mu = torch.sigmoid(raw_parameters[:, 4])
-        omega = torch.sigmoid(raw_parameters[:, 5])
+        # Apply the modified tanh function to represent constant parameters
+        beta = 0.5 * (torch.tanh(raw_parameters[:, 0]) + 1)
+        gamma_c = 0.5 * (torch.tanh(raw_parameters[:, 1]) + 1)
+        delta_c = 0.5 * (torch.tanh(raw_parameters[:, 2]) + 1)
+        eta = 0.5 * (torch.tanh(raw_parameters[:, 3]) + 1)
+        mu = 0.5 * (torch.tanh(raw_parameters[:, 4]) + 1)
+        omega = 0.5 * (torch.tanh(raw_parameters[:, 5]) + 1)
 
         return beta, gamma_c, delta_c, eta, mu, omega
+
+    def get_constants(self):
+        rho = torch.sigmoid(self.rho)
+        alpha = torch.sigmoid(self.alpha)
+        ds = torch.sigmoid(self.ds)
+        da = torch.sigmoid(self.da)
+        dH = torch.sigmoid(self.dH)
+        return rho, alpha, ds, da, dH
 
     def init_xavier(self):
         def init_weights(layer):
@@ -376,7 +364,7 @@ class ParameterNet(nn.Module):
         # Apply the weight initialization to the network
         self.net.apply(init_weights)
 
-def einn_loss(model_output, tensor_data, parameters, t):
+def einn_loss(model_output, tensor_data, parameters, t, constants):
     S_pred, E_pred, Is_pred, Ia_pred, H_pred, C_pred, R_pred, D_pred = (
         model_output[:, 0], model_output[:, 1], model_output[:, 2], model_output[:, 3],
         model_output[:, 4], model_output[:, 5], model_output[:, 6], model_output[:, 7]
@@ -385,11 +373,7 @@ def einn_loss(model_output, tensor_data, parameters, t):
     Is_data, H_data, C_data, D_data = tensor_data[:, 0], tensor_data[:, 1], tensor_data[:, 2], tensor_data[:, 3]
 
     N = 1
-    rho = 0.80
-    alpha = 1 / 5
-    ds = 1 / 4
-    da = 1 / 7
-    dH = 1 / 13.4
+    rho, alpha, ds, da, dH = constants
     
     beta_pred, gamma_c_pred, delta_c_pred, eta_pred, mu_pred, omega_pred = parameters
 
@@ -411,8 +395,6 @@ def einn_loss(model_output, tensor_data, parameters, t):
     
     residual_loss = torch.mean((S_t - dSdt) ** 2) + torch.mean((E_t - dEdt) ** 2) + torch.mean((Is_t - dIsdt) ** 2) + torch.mean((Ia_t - dIadt) ** 2) + torch.mean((H_t - dHdt) ** 2) + torch.mean((C_t - dCdt) ** 2) + torch.mean((R_t - dRdt) ** 2) + torch.mean((D_t - dDdt) ** 2)
     
-    # initial_conditions_loss = torch.mean((S_pred[0] - 1) ** 2) + torch.mean((E_pred[0]) ** 2) + torch.mean((Is_pred[0]) ** 2) + torch.mean((Ia_pred[0]) ** 2) + torch.mean((H_pred[0]) ** 2) + torch.mean((C_pred[0]) ** 2) + torch.mean((R_pred[0]) ** 2) + torch.mean((D_pred[0]) ** 2)
-
     loss = data_loss + residual_loss
     return loss
 
@@ -466,10 +448,11 @@ def train_model(
 
         # Forward pass
         model_output = model(t)
-        parameters = parameter_net.get_parameters(t)
+        parameters = parameter_net(t)
+        constants = parameter_net.get_constants()
 
         # Compute loss
-        loss = einn_loss(model_output, data, parameters, t)
+        loss = einn_loss(model_output, data, parameters, t, constants)
 
         # Backward pass and optimization
         loss.backward()
@@ -495,7 +478,7 @@ def train_model(
 
 # Initialize model, optimizer, and scheduler
 model = EpiNet(num_layers=5, hidden_neurons=20, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=1, hidden_neurons=15, output_size=6).to(device)
+parameter_net = ParameterNet(num_layers=3, hidden_neurons=20, output_size=6).to(device)
 optimizer = optim.AdamW(
     list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4, weight_decay=1e-2
 )
@@ -540,14 +523,12 @@ plt.savefig("../../reports/figures/training_loss.png")  # Save as PNG
 plt.show()
 
 # Save the trained model
-torch.save(model.state_dict(), "../../models/epinet_model.pth")
-torch.save(parameter_net.state_dict(), "../../models/parameter_net.pth")
-
+torch.save(model.state_dict(), "../../models/epinet3_model.pth")
+torch.save(parameter_net.state_dict(), "../../models/parameter_net3.pth")
 
 # load the trained model
-
-model.load_state_dict(torch.load("../../models/epinet_model.pth"))
-parameter_net.load_state_dict(torch.load("../../models/parameter_net.pth"))
+model.load_state_dict(torch.load("../../models/epinet_model3.pth"))
+parameter_net.load_state_dict(torch.load("../../models/parameter_net3.pth"))
 
 def plot_outputs(model, t, parameter_net, data, device, scaler):
     model.eval()
@@ -556,7 +537,7 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
     with torch.no_grad():
         time_stamps = t
         model_output = model(time_stamps)
-        parameters = parameter_net.get_parameters(time_stamps)
+        parameters = parameter_net(time_stamps)
 
     observed_model_output = pd.DataFrame(
         {
@@ -645,7 +626,6 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
         ax.legend(fontsize=14)
 
-
     # Adjust layout and save the figure
     plt.tight_layout(pad=2.0)
     plt.savefig("../../reports/figures/time_varying_parameters.pdf", bbox_inches='tight')
@@ -675,10 +655,10 @@ for area, observed, predicted in zip(areas, observed_data, predicted_data):
     metrics.append([nrmse, mase, mae, mape])
     
     print(f"{area} Metrics:")
-    print(f"NRMSE: {nrmse:.4f}")
-    print(f"MASE: {mase:.4f}")
-    print(f"MAE: {mae:.4f}")
-    print(f"MAPE: {mape:.4f}")
+    print(f"NRMSE: {nrmse:.6f}")
+    print(f"MASE: {mase:.6f}")
+    print(f"MAE: {mae:.6f}")
+    print(f"MAPE: {mape:.6f}")
     print()
     
 # Save metrics to a CSV file
