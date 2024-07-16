@@ -324,7 +324,7 @@ class ParameterNet(nn.Module):
         self.net = nn.Sequential(*layers)
 
         self.init_xavier()
-
+        # torch.rand(1)
         # Define constant parameters as learnable parameters
         self.rho = nn.Parameter(torch.tensor(0.8))
         self.alpha = nn.Parameter(torch.tensor(1 / 5))
@@ -336,12 +336,12 @@ class ParameterNet(nn.Module):
         raw_parameters = self.net(t)
 
         # Apply the modified tanh function to represent constant parameters
-        beta = 0.5 * (torch.tanh(raw_parameters[:, 0]) + 1)
-        gamma_c = 0.5 * (torch.tanh(raw_parameters[:, 1]) + 1)
-        delta_c = 0.5 * (torch.tanh(raw_parameters[:, 2]) + 1)
-        eta = 0.5 * (torch.tanh(raw_parameters[:, 3]) + 1)
-        mu = 0.5 * (torch.tanh(raw_parameters[:, 4]) + 1)
-        omega = 0.5 * (torch.tanh(raw_parameters[:, 5]) + 1)
+        beta = torch.sigmoid(raw_parameters[:, 0]) 
+        gamma_c = torch.sigmoid(raw_parameters[:, 1])
+        delta_c = torch.sigmoid(raw_parameters[:, 2])
+        eta = torch.sigmoid(raw_parameters[:, 3])
+        mu = torch.sigmoid(raw_parameters[:, 4])
+        omega = torch.sigmoid(raw_parameters[:, 5])
 
         return beta, gamma_c, delta_c, eta, mu, omega
 
@@ -478,7 +478,7 @@ def train_model(
 
 # Initialize model, optimizer, and scheduler
 model = EpiNet(num_layers=5, hidden_neurons=20, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=3, hidden_neurons=20, output_size=6).to(device)
+parameter_net = ParameterNet(num_layers=1, hidden_neurons=20, output_size=6).to(device)
 optimizer = optim.AdamW(
     list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4, weight_decay=1e-2
 )
@@ -648,18 +648,20 @@ metric_names = ["NRMSE", "MASE", "MAE", "MAPE"]
 areas = ["Infections", "Hospitalizations", "Critical", "Deaths"]
 observed_data = [I.cpu().numpy(), H.cpu().numpy(), C.cpu().numpy(), D.cpu().numpy()]
 predicted_data = [I_pred, H_pred, C_pred, D_pred]
+train_data = [data["daily_confirmed"].values, data["daily_hospitalized"].values, data["covidOccupiedMVBeds"].values, data["daily_deceased"].values]
 
-for area, observed, predicted in zip(areas, observed_data, predicted_data):
-    nrmse, mase, mae, mape = calculate_errors(observed, predicted, observed)
-    metrics.append([f"{area} {metric}" for metric in metric_names])
-    metrics.append([nrmse, mase, mae, mape])
-    
-    print(f"{area} Metrics:")
-    print(f"NRMSE: {nrmse:.6f}")
-    print(f"MASE: {mase:.6f}")
-    print(f"MAE: {mae:.6f}")
-    print(f"MAPE: {mape:.6f}")
-    print()
-    
-# Save metrics to a CSV file
+for obs, pred, train, area in zip(observed_data, predicted_data, train_data, areas):
+    nrmse, mase, mae, mape = calculate_errors(obs, pred, train)
+    print(f"Metrics for {area}:")
+    print(f"Normalized Root Mean Square Error (NRMSE): {nrmse:.4f}")
+    print(f"Mean Absolute Scaled Error (MASE): {mase:.4f}")
+    print(f"Mean Absolute Error (MAE): {mae:.4f}")
+    print(f"Mean Absolute Percentage Error (MAPE): {mape:.4f}")
+
+    metrics.append([f"{area}_NRMSE", nrmse])
+    metrics.append([f"{area}_MASE", mase])
+    metrics.append([f"{area}_MAE", mae])
+    metrics.append([f"{area}_MAPE", mape])
+
+# Save metrics to CSV
 save_metrics(metrics, "England")
