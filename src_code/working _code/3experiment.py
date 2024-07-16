@@ -275,6 +275,19 @@ features = [
 # Split and scale the data
 data_scaled, scaler = scale_data(data, features, device)
 
+class ResidualBlock(nn.Module):
+    def __init__(self, hidden_neurons):
+        super(ResidualBlock, self).__init__()
+        self.layer = nn.Sequential(
+            nn.Linear(hidden_neurons, hidden_neurons),
+            nn.Tanh(),
+            nn.Linear(hidden_neurons, hidden_neurons),
+        )
+        self.activation = nn.Tanh()
+
+    def forward(self, x):
+        return self.activation(x + self.layer(x))
+
 class EpiNet(nn.Module):
     def __init__(self, num_layers=2, hidden_neurons=10, output_size=8):
         super(EpiNet, self).__init__()
@@ -284,9 +297,14 @@ class EpiNet(nn.Module):
         # Input layer
         layers = [nn.Linear(1, hidden_neurons), nn.Tanh()]
 
-        # Hidden layers
-        for _ in range(num_layers - 1):
-            layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
+        # # Hidden layers
+        # for _ in range(num_layers - 1):
+        #     layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
+            
+            
+        for _ in range(num_layers):
+            layers.append(ResidualBlock(hidden_neurons))
+        
 
         # Output layer
         layers.append(nn.Linear(hidden_neurons, output_size))
@@ -478,7 +496,7 @@ def train_model(
 
 # Initialize model, optimizer, and scheduler
 model = EpiNet(num_layers=5, hidden_neurons=20, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=1, hidden_neurons=20, output_size=6).to(device)
+parameter_net = ParameterNet(num_layers=4, hidden_neurons=20, output_size=6).to(device)
 optimizer = optim.AdamW(
     list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4, weight_decay=1e-2
 )
