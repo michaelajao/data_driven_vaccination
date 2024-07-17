@@ -496,9 +496,9 @@ def train_model(
 
 # Initialize model, optimizer, and scheduler
 model = EpiNet(num_layers=5, hidden_neurons=32, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=3, hidden_neurons=32, output_size=6).to(device)
+parameter_net = ParameterNet(num_layers=2, hidden_neurons=32, output_size=6).to(device)
 optimizer = optim.AdamW(
-    list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4
+    list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4, weight_decay=1e-2
 )
 
 summary(model, (1,))
@@ -570,28 +570,28 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
     observed_model_output_scaled = scaler.inverse_transform(observed_model_output)
     dates = data["date"]
 
-    fig, axs = plt.subplots(1, 4, figsize=(18, 6), sharex=True)
-    axs[0].plot(dates, data["daily_confirmed"], color="blue", linewidth=2.5)
-    axs[0].plot(dates, observed_model_output_scaled[:, 0], linestyle="--", color="red", linewidth=2.5)
-    axs[0].set_ylabel("New Confirmed Cases", fontsize=14, weight='bold')
-    axs[0].set_xlabel("Date", fontsize=14, weight='bold')
+    fig, axs = plt.subplots(2, 2, figsize=(18, 12), sharex=True)
+    axs[0, 0].plot(dates, data["daily_confirmed"], color="blue", linewidth=2.5)
+    axs[0, 0].plot(dates, observed_model_output_scaled[:, 0], linestyle="--", color="red", linewidth=2.5)
+    axs[0, 0].set_ylabel("New Confirmed Cases", fontsize=14, weight='bold')
+    axs[0, 0].set_xlabel("Date", fontsize=14, weight='bold')
 
-    axs[1].plot(dates, data["daily_hospitalized"], color="blue", linewidth=2.5)
-    axs[1].plot(dates, observed_model_output_scaled[:, 1], linestyle="--", color="red", linewidth=2.5)
-    axs[1].set_ylabel("New Admissions", fontsize=14, weight='bold')
-    axs[1].set_xlabel("Date", fontsize=14, weight='bold')
+    axs[0, 1].plot(dates, data["daily_hospitalized"], color="blue", linewidth=2.5)
+    axs[0, 1].plot(dates, observed_model_output_scaled[:, 1], linestyle="--", color="red", linewidth=2.5)
+    axs[0, 1].set_ylabel("New Admissions", fontsize=14, weight='bold')
+    axs[0, 1].set_xlabel("Date", fontsize=14, weight='bold')
 
-    axs[2].plot(dates, data["covidOccupiedMVBeds"], color="blue", linewidth=2.5)
-    axs[2].plot(dates, observed_model_output_scaled[:, 2], linestyle="--", color="red", linewidth=2.5)
-    axs[2].set_ylabel("Critical Cases", fontsize=14, weight='bold')
-    axs[2].set_xlabel("Date", fontsize=14, weight='bold')
+    axs[1, 0].plot(dates, data["covidOccupiedMVBeds"], color="blue", linewidth=2.5)
+    axs[1, 0].plot(dates, observed_model_output_scaled[:, 2], linestyle="--", color="red", linewidth=2.5)
+    axs[1, 0].set_ylabel("Critical Cases", fontsize=14, weight='bold')
+    axs[1, 0].set_xlabel("Date", fontsize=14, weight='bold')
 
-    axs[3].plot(dates, data["daily_deceased"], color="blue", linewidth=2.5)
-    axs[3].plot(dates, observed_model_output_scaled[:, 3], linestyle="--", color="red", linewidth=2.5)
-    axs[3].set_ylabel("New Deaths", fontsize=14, weight='bold')
-    axs[3].set_xlabel("Date", fontsize=14, weight='bold')
+    axs[1, 1].plot(dates, data["daily_deceased"], color="blue", linewidth=2.5)
+    axs[1, 1].plot(dates, observed_model_output_scaled[:, 3], linestyle="--", color="red", linewidth=2.5)
+    axs[1, 1].set_ylabel("New Deaths", fontsize=14, weight='bold')
+    axs[1, 1].set_xlabel("Date", fontsize=14, weight='bold')
 
-    for ax in axs:
+    for ax in axs.flat:
         ax.tick_params(axis="x", rotation=45, labelsize=14)
         ax.tick_params(axis="y", labelsize=14)
         ax.legend(["Observed", "Predicted"], fontsize=14)
@@ -601,24 +601,24 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
     plt.savefig("../../reports/figures/observed_vs_predicted.png")  # Save as PNG
     plt.show()
 
-    fig, axs = plt.subplots(1, 4, figsize=(18, 6), sharex=True)
-    axs[0].plot(dates, model_output[:, 0].cpu(), label="Susceptible", color="green", linewidth=2.5)
-    axs[0].set_ylabel("Susceptible", fontsize=14, weight='bold')
-    axs[0].set_xlabel("Date", fontsize=14, weight='bold')
+    fig, axs = plt.subplots(2, 2, figsize=(18, 12), sharex=True)
+    axs[0, 0].plot(dates, model_output[:, 0].cpu(), label="Susceptible", color="green", linewidth=2.5)
+    axs[0, 0].set_ylabel("Susceptible", fontsize=14, weight='bold')
+    axs[0, 0].set_xlabel("Date", fontsize=14, weight='bold')
 
-    axs[1].plot(dates, model_output[:, 1].cpu(), label="Exposed", color="green", linewidth=2.5)
-    axs[1].set_ylabel("Exposed", fontsize=14, weight='bold')
-    axs[1].set_xlabel("Date", fontsize=14, weight='bold')
+    axs[0, 1].plot(dates, model_output[:, 1].cpu(), label="Exposed", color="green", linewidth=2.5)
+    axs[0, 1].set_ylabel("Exposed", fontsize=14, weight='bold')
+    axs[0, 1].set_xlabel("Date", fontsize=14, weight='bold')
 
-    axs[2].plot(dates, model_output[:, 3].cpu(), label="Asymptomatic", color="green", linewidth=2.5)
-    axs[2].set_ylabel("Asymptomatic", fontsize=14, weight='bold')
-    axs[2].set_xlabel("Date", fontsize=14, weight='bold')
+    axs[1, 0].plot(dates, model_output[:, 3].cpu(), label="Asymptomatic", color="green", linewidth=2.5)
+    axs[1, 0].set_ylabel("Asymptomatic", fontsize=14, weight='bold')
+    axs[1, 0].set_xlabel("Date", fontsize=14, weight='bold')
 
-    axs[3].plot(dates, model_output[:, 6].cpu(), label="Recovered", color="green", linewidth=2.5)
-    axs[3].set_ylabel("Recovered", fontsize=14, weight='bold')
-    axs[3].set_xlabel("Date", fontsize=14, weight='bold')
+    axs[1, 1].plot(dates, model_output[:, 6].cpu(), label="Recovered", color="green", linewidth=2.5)
+    axs[1, 1].set_ylabel("Recovered", fontsize=14, weight='bold')
+    axs[1, 1].set_xlabel("Date", fontsize=14, weight='bold')
 
-    for ax in axs:
+    for ax in axs.flat:
         ax.tick_params(axis="x", rotation=45, labelsize=14)
         ax.tick_params(axis="y", labelsize=14)
 
@@ -627,7 +627,7 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
     plt.savefig("../../reports/figures/unobserved_outputs.png")  # Save as PNG
     plt.show()
 
-    fig, axs = plt.subplots(2, 3, figsize=(20, 10), sharex=True)
+    fig, axs = plt.subplots(3, 2, figsize=(20, 15), sharex=True)
     parameters_np = [p.cpu().numpy() for p in parameters]
 
     # Define the LaTeX labels for the parameters
@@ -653,6 +653,8 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
     return parameters_np, observed_model_output_scaled
 
 parameters_np, observed_model_output_scaled = plot_outputs(model, time_stamps, parameter_net, data, device, scaler)
+
+
 
 # Evaluate the predictions on the observed data
 I, H, C, D = prepare_tensors(data, device)
