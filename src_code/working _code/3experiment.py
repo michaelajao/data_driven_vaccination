@@ -228,6 +228,10 @@ data = load_and_preprocess_data(
     end_date="2021-12-31",
 )
 
+# split data into training and validation sets, the validation should be the last 7 days
+train_data = data[:-7]
+val_data = data[-7:]
+
 def prepare_tensors(data, device):
     """Prepare tensors for training."""
     I = (
@@ -273,7 +277,7 @@ features = [
 ]
 
 # Split and scale the data
-data_scaled, scaler = scale_data(data, features, device)
+data_scaled, scaler = scale_data(train_data, features, device)
 
 class ResidualBlock(nn.Module):
     def __init__(self, hidden_neurons):
@@ -496,9 +500,9 @@ def train_model(
 
 # Initialize model, optimizer, and scheduler
 model = EpiNet(num_layers=5, hidden_neurons=32, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=3, hidden_neurons=32, output_size=6).to(device)
+parameter_net = ParameterNet(num_layers=2, hidden_neurons=20, output_size=6).to(device)
 optimizer = optim.AdamW(
-    list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4, weight_decay=1e-2
+    list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4, weight_decay=3e-2
 )
 
 summary(model, (1,))
@@ -510,7 +514,7 @@ early_stopping = EarlyStopping(patience=150, verbose=False)
 
 # Create timestamps tensor
 time_stamps = (
-    torch.tensor(data.index.values, dtype=torch.float32)
+    torch.tensor(train_data.index.values, dtype=torch.float32)
     .view(-1, 1)
     .to(device)
     .requires_grad_()
@@ -652,12 +656,12 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
 
     return parameters_np, observed_model_output_scaled
 
-parameters_np, observed_model_output_scaled = plot_outputs(model, time_stamps, parameter_net, data, device, scaler)
+parameters_np, observed_model_output_scaled = plot_outputs(model, time_stamps, parameter_net, train_data, device, scaler)
 
 
 
 # Evaluate the predictions on the observed data
-I, H, C, D = prepare_tensors(data, device)
+I, H, C, D = prepare_tensors(train_data, device)
 I_pred, H_pred, C_pred, D_pred = observed_model_output_scaled[:, 0], observed_model_output_scaled[:, 1], observed_model_output_scaled[:, 2], observed_model_output_scaled[:, 3]
 
 # Collect metrics
@@ -668,7 +672,7 @@ metric_names = ["NRMSE", "MASE", "MAE", "MAPE"]
 areas = ["Infections", "Hospitalizations", "Critical", "Deaths"]
 observed_data = [I.cpu().numpy(), H.cpu().numpy(), C.cpu().numpy(), D.cpu().numpy()]
 predicted_data = [I_pred, H_pred, C_pred, D_pred]
-train_data = [data["daily_confirmed"].values, data["daily_hospitalized"].values, data["covidOccupiedMVBeds"].values, data["daily_deceased"].values]
+train_data = [train_data["daily_confirmed"].values, train_data["daily_hospitalized"].values, train_data["covidOccupiedMVBeds"].values, train_data["daily_deceased"].values]
 
 for obs, pred, train, area in zip(observed_data, predicted_data, train_data, areas):
     nrmse, mase, mae, mape = calculate_errors(obs, pred, train)
@@ -685,3 +689,69 @@ for obs, pred, train, area in zip(observed_data, predicted_data, train_data, are
 
 # Save metrics to CSV
 save_metrics(metrics, "England")
+
+def plot_7_days_forecast_and_validation(model, parameter_net, train_data, val_data, scaler, device):
+    model.eval()
+    parameter_net.eval()
+
+    # Generate future time steps for validation
+    future_dates = val_data["date"]
+    future_time_stamps = torch.tensor(val_data.index.values, dtype=torch.float32).view(-1, 1).to(device)
+    
+    with torch.no_grad():
+        future_model_output = model(future_time_stamps)
+    
+    # Scale the future model outputs back to original scale
+    future_forecast = pd.DataFrame(
+        {
+            "daily_confirmed": future_model_output[:, 2].cpu().numpy(),
+            "daily_hospitalized": future_model_output[:, 4].cpu().numpy(),
+            "covidOccupiedMVBeds": future_model_output[:, 5].cpu().numpy(),
+            "daily_deceased": future_model_output[:, 7].cpu().numpy(),
+        },
+        index=future_dates,
+    )
+    
+    future_forecast_scaled = scaler.inverse_transform(future_forecast)
+    
+    # Plot the forecasted values
+    fig, axs = plt.subplots(2, 2, figsize=(18, 12), sharex=True)
+    
+    axs[0, 0].plot(val_data["date"], val_data["daily_confirmed"], label="Observed", color="blue")
+    axs[0, 0].plot(val_data["date"], future_forecast_scaled[:, 0], label="Forecasted", linestyle="--", color="red")
+    axs[0, 0].set_ylabel("New Confirmed Cases", fontsize=14, weight='bold')
+    axs[0, 0].set_xlabel("Date", fontsize=14, weight='bold')
+
+    axs[0, 1].plot(val_data["date"], val_data["daily_hospitalized"], label="Observed", color="blue")
+    axs[0, 1].plot(val_data["date"], future_forecast_scaled[:, 1], label="Forecasted", linestyle="--", color="red")
+    axs[0, 1].set_ylabel("New Admissions", fontsize=14, weight='bold')
+    axs[0, 1].set_xlabel("Date", fontsize=14, weight='bold')
+
+    axs[1, 0].plot(val_data["date"], val_data["covidOccupiedMVBeds"], label="Observed", color="blue")
+    axs[1, 0].plot(val_data["date"], future_forecast_scaled[:, 2], label="Forecasted", linestyle="--", color="red")
+    axs[1, 0].set_ylabel("Critical Cases", fontsize=14, weight='bold')
+    axs[1, 0].set_xlabel("Date", fontsize=14, weight='bold')
+
+    axs[1, 1].plot(val_data["date"], val_data["daily_deceased"], label="Observed", color="blue")
+    axs[1, 1].plot(val_data["date"], future_forecast_scaled[:, 3], label="Forecasted", linestyle="--", color="red")
+    axs[1, 1].set_ylabel("New Deaths", fontsize=14, weight='bold')
+    axs[1, 1].set_xlabel("Date", fontsize=14, weight='bold')
+
+    for ax in axs.flat:
+        ax.tick_params(axis="x", rotation=45, labelsize=14)
+        ax.tick_params(axis="y", labelsize=14)
+        ax.legend(fontsize=14)
+
+    plt.tight_layout()
+    plt.savefig("../../reports/figures/7_days_forecast_validation.pdf")
+    plt.savefig("../../reports/figures/7_days_forecast_validation.png")  # Save as PNG
+    plt.show()
+    
+    return future_forecast_scaled
+
+# Plot the 7 days forecast and validation
+future_forecast_scaled = plot_7_days_forecast_and_validation(model, parameter_net, train_data, val_data, scaler, device)
+
+# Evaluate the predictions on the validation data
+val_I, val_H, val_C, val_D = prepare_tensors(val_data, device)
+val_I_pred, val_H_pred, val_C_pred, val_D_pred = future_forecast_scaled[:, 0], future_forecast_scaled[:, 1], future_forecast_scaled[:, 2], future_forecast_scaled[:, 3]
