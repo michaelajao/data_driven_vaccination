@@ -500,7 +500,7 @@ def train_model(
 
 # Initialize model, optimizer, and scheduler
 model = EpiNet(num_layers=5, hidden_neurons=32, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=1, hidden_neurons=32, output_size=6).to(device)
+parameter_net = ParameterNet(num_layers=2, hidden_neurons=32, output_size=6).to(device)
 optimizer = optim.AdamW(
     list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4, weight_decay=1e-2
 )
@@ -510,7 +510,7 @@ summary(model, (1,))
 scheduler = StepLR(optimizer, step_size=5000, gamma=0.998)
 
 # Early stopping
-early_stopping = EarlyStopping(patience=150, verbose=False)
+early_stopping = EarlyStopping(patience=100, verbose=False)
 
 # Create timestamps tensor
 time_stamps = (
