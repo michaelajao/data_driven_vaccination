@@ -74,9 +74,9 @@ plt.rc('axes', prop_cycle=monochrome)
 
 # Update matplotlib rcParams for consistent plot settings
 plt.rcParams.update({
-    "font.family": "serif",
+    # "font.family": "serif",
     "font.size": 16,
-    "figure.figsize": [12, 8],
+    "figure.figsize": [10, 6],
     "text.usetex": False,
     "figure.facecolor": "white",
     "figure.autolayout": True,
@@ -348,11 +348,11 @@ class ParameterNet(nn.Module):
         self.init_xavier()
         # torch.rand(1)
         # Define constant parameters as learnable parameters
-        self.rho = nn.Parameter(torch.tensor(0.8))
-        self.alpha = nn.Parameter(torch.tensor(1 / 5))
-        self.ds = nn.Parameter(torch.tensor(1 / 4))
-        self.da = nn.Parameter(torch.tensor(1 / 7))
-        self.dH = nn.Parameter(torch.tensor(1 / 13.4))
+        self.rho = nn.Parameter(torch.tensor(torch.rand(1)))
+        self.alpha = nn.Parameter(torch.tensor(torch.rand(1)))
+        self.ds = nn.Parameter(torch.tensor(torch.rand(1)))
+        self.da = nn.Parameter(torch.tensor(torch.rand(1)))
+        self.dH = nn.Parameter(torch.tensor(torch.rand(1)))
 
     def forward(self, t):
         raw_parameters = self.net(t)
@@ -499,10 +499,10 @@ def train_model(
     return train_losses
 
 # Initialize model, optimizer, and scheduler
-model = EpiNet(num_layers=5, hidden_neurons=32, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=2, hidden_neurons=32, output_size=6).to(device)
-optimizer = optim.AdamW(
-    list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4, weight_decay=1e-2
+model = EpiNet(num_layers=5, hidden_neurons=20, output_size=8).to(device)
+parameter_net = ParameterNet(num_layers=2, hidden_neurons=20, output_size=6).to(device)
+optimizer = optim.Adam(
+    list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4
 )
 
 summary(model, (1,))
@@ -510,7 +510,7 @@ summary(model, (1,))
 scheduler = StepLR(optimizer, step_size=5000, gamma=0.998)
 
 # Early stopping
-early_stopping = EarlyStopping(patience=100, verbose=False)
+early_stopping = EarlyStopping(patience=200, verbose=False)
 
 # Create timestamps tensor
 time_stamps = (
@@ -539,7 +539,7 @@ plt.yscale("log")
 plt.ylabel("Loss", fontsize=16, weight='bold')
 plt.title("Training Loss over Epochs", fontsize=18, weight='bold')
 plt.legend(fontsize=14)
-plt.grid(True)
+# plt.grid(True)
 plt.savefig("../../reports/figures/training_loss.pdf")
 plt.savefig("../../reports/figures/training_loss.png")  # Save as PNG
 plt.show()
