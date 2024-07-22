@@ -54,7 +54,7 @@ def get_device():
         device_count = torch.cuda.device_count()
         for i in range(device_count):
             if torch.cuda.get_device_name(i):
-                return torch.device(f"cuda:{i}")
+                return torch.device(f"cuda:{1}")
     return torch.device("cpu")
 
 device = get_device()
@@ -348,11 +348,11 @@ class ParameterNet(nn.Module):
         self.init_xavier()
         # torch.rand(1)
         # Define constant parameters as learnable parameters
-        self.rho = nn.Parameter(torch.tensor(torch.rand(1)))
-        self.alpha = nn.Parameter(torch.tensor(torch.rand(1)))
-        self.ds = nn.Parameter(torch.tensor(torch.rand(1)))
-        self.da = nn.Parameter(torch.tensor(torch.rand(1)))
-        self.dH = nn.Parameter(torch.tensor(torch.rand(1)))
+        self.rho = nn.Parameter(torch.tensor(0.8))
+        self.alpha = nn.Parameter(torch.tensor(1 / 5))
+        self.ds = nn.Parameter(torch.tensor(1 / 4))
+        self.da = nn.Parameter(torch.tensor(1 / 7))
+        self.dH = nn.Parameter(torch.tensor(1 / 13.4))
 
     def forward(self, t):
         raw_parameters = self.net(t)
@@ -499,15 +499,13 @@ def train_model(
     return train_losses
 
 # Initialize model, optimizer, and scheduler
-model = EpiNet(num_layers=5, hidden_neurons=20, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=2, hidden_neurons=20, output_size=6).to(device)
+model = EpiNet(num_layers=6, hidden_neurons=20, output_size=8).to(device)
+parameter_net = ParameterNet(num_layers=3, hidden_neurons=20, output_size=6).to(device)
 optimizer = optim.Adam(
     list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4
 )
 
-summary(model, (1,))
-
-scheduler = StepLR(optimizer, step_size=5000, gamma=0.998)
+scheduler = StepLR(optimizer, step_size=5000, gamma=0.9)
 
 # Early stopping
 early_stopping = EarlyStopping(patience=200, verbose=False)
