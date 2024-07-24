@@ -14,9 +14,10 @@ from torch.optim.lr_scheduler import StepLR
 from torch import tensor
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-# os.chdir("/Users/ajaoo/Desktop/Projects/data_driven_vaccination")
+# Change working directory
 os.chdir("/home/olarinoyem/Research/data_driven_vaccination")
 
+# Create necessary directories
 os.makedirs("reports/output", exist_ok=True)
 os.makedirs("reports/results", exist_ok=True)
 os.makedirs("models", exist_ok=True)
@@ -37,7 +38,7 @@ plt.rcParams.update({
     "axes.labelsize": 14,
     "axes.titlesize": 18,
     "axes.facecolor": "white",
-    "axes.grid": True,
+    "axes.grid": False,
     "axes.spines.top": False,
     "axes.spines.right": False,
     "axes.formatter.limits": (0, 5),
@@ -77,8 +78,8 @@ if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = False
 np.random.seed(seed)
 
-# Function to check PyTorch and CUDA setup
 def check_pytorch():
+    """Check PyTorch and CUDA setup."""
     print(f"PyTorch version: {torch.__version__}")
     cuda_available = torch.cuda.is_available()
     print(f"CUDA available: {cuda_available}")
@@ -93,57 +94,34 @@ def check_pytorch():
 
 check_pytorch()
 
-# Function to load and preprocess data
-file_path = "data/processed/england_data.csv"
-def load_and_preprocess_data(
-    filepath,
-    rolling_window=7,
-    start_date="2020-04-01",
-    end_date="2020-05-31",
-    recovery_window=14
-):
-    """Load and preprocess the data from a CSV file."""
+def load_and_preprocess_data(filepath, rolling_window=7, start_date="2020-04-01", end_date="2020-05-31", recovery_window=14):
+    """
+    Load and preprocess the data from a CSV file.
+    
+    Args:
+        filepath (str): Path to the CSV file.
+        rolling_window (int): Window size for smoothing.
+        start_date (str): Start date for filtering data.
+        end_date (str): End date for filtering data.
+        recovery_window (int): Window size for recovery calculation.
+    
+    Returns:
+        pd.DataFrame: Preprocessed data.
+    """
     df = pd.read_csv(filepath)
     df["date"] = pd.to_datetime(df["date"])
-    df = df[
-        (df["date"] >= pd.to_datetime(start_date))
-        & (df["date"] <= pd.to_datetime(end_date))
-    ]
-    
-    # df["recovered"] = df["cumulative_confirmed"].shift(recovery_window) - df[
-    #     "cumulative_deceased"
-    # ].shift(recovery_window)
-    # df["recovered"] = df["recovered"].fillna(0).clip(lower=0)
-    
-    # Estimate recovery rates using a moving window
+    df = df[(df["date"] >= pd.to_datetime(start_date)) & (df["date"] <= pd.to_datetime(end_date))]
+
     df["recovered"] = df["new_confirmed"].shift(recovery_window) - df["new_deceased"].shift(recovery_window)
     df["recovered"] = df["recovered"].fillna(0).clip(lower=0)
-
-    # Calculate cumulative recovered cases
     df["cumulative_recovered"] = df["recovered"].cumsum().fillna(0)
+    df["active_cases"] = (df["cumulative_confirmed"] - df["cumulative_recovered"] - df["cumulative_deceased"]).clip(lower=0)
+    df["susceptible"] = df["population"] - (df["cumulative_recovered"] + df["cumulative_deceased"] + df["active_cases"]).clip(lower=0)
 
-    # Calculate active cases
-    df["active_cases"] = (
-        df["cumulative_confirmed"] - df["cumulative_recovered"] - df["cumulative_deceased"]
-    ).clip(lower=0)
-
-    # Calculate susceptible cases
-    df["susceptible"] = df["population"] - (
-        df["cumulative_recovered"] + df["cumulative_deceased"] + df["active_cases"]
-    ).clip(lower=0)
-
-    # Smooth the columns
     cols_to_smooth = [
-        "new_confirmed",
-        "cumulative_confirmed",
-        "cumulative_deceased",
-        "hospitalCases",
-        "covidOccupiedMVBeds",
-        "new_deceased",
-        "active_cases",
-        "susceptible",
-        "cumulative_recovered",
-        "recovered"
+        "new_confirmed", "cumulative_confirmed", "cumulative_deceased", "hospitalCases",
+        "covidOccupiedMVBeds", "new_deceased", "active_cases", "susceptible",
+        "cumulative_recovered", "recovered"
     ]
     for col in cols_to_smooth:
         if col in df.columns:
@@ -151,29 +129,41 @@ def load_and_preprocess_data(
 
     return df
 
-# Process the data using the updated preprocessing function
+# Load and preprocess the data
+file_path = "data/processed/england_data.csv"
 data = load_and_preprocess_data(file_path, rolling_window=7, start_date="2020-05-01", end_date="2020-08-31", recovery_window=21)
-areaname = "England"
+area_name = "England"
 
-# Plot susceptible data over time to check for any trends
+# Plot cumulative recovered cases over time
 plt.figure()
-plt.plot(data["date"], data["cumulative_recovered"], label="cumulative_recovered")
+plt.plot(data["date"], data["cumulative_recovered"], label="Cumulative Recovered")
 plt.xlabel("Date")
-plt.ylabel("recovered")
-plt.title(f"Recovered Over Time in {areaname}")
+plt.ylabel("Recovered")
+plt.title(f"Recovered Over Time in {area_name}")
 plt.xticks(rotation=45)
 plt.tight_layout()
 plt.show()
 
-# Define the SEIRDNet model
 class SEIRDNet(nn.Module):
     def __init__(self, inverse=False, init_beta=None, init_gamma=None, init_delta=None, retain_seed=42, num_layers=4, hidden_neurons=20):
+        """
+        SEIRDNet model for SEIRD prediction.
+
+        Args:
+            inverse (bool): Flag to enable inverse modeling.
+            init_beta (float): Initial beta value.
+            init_gamma (float): Initial gamma value.
+            init_delta (float): Initial delta value.
+            retain_seed (int): Seed for reproducibility.
+            num_layers (int): Number of layers in the network.
+            hidden_neurons (int): Number of neurons in hidden layers.
+        """
         super(SEIRDNet, self).__init__()
         self.retain_seed = retain_seed
         layers = [nn.Linear(1, hidden_neurons), nn.Tanh()]
         for _ in range(num_layers - 1):
             layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
-        layers.append(nn.Linear(hidden_neurons, 4))  # Adjust the output size to 4 (S, I, R, D)
+        layers.append(nn.Linear(hidden_neurons, 4))  # Output size is 4 (S, I, R, D)
         self.net = nn.Sequential(*layers)
 
         if inverse:
@@ -212,27 +202,60 @@ class SEIRDNet(nn.Module):
                     m.bias.data.fill_(0.01)
         self.apply(init_weights)
 
-# Function for network prediction with normalization
 def network_prediction(t, model, device, feature_min, feature_max):
+    """
+    Generate network predictions with normalization.
+
+    Args:
+        t (np.ndarray): Time values.
+        model (nn.Module): Trained model.
+        device (torch.device): Device for computation.
+        feature_min (pd.Series): Minimum feature values.
+        feature_max (pd.Series): Maximum feature values.
+
+    Returns:
+        np.ndarray: Predicted values.
+    """
     t_tensor = torch.from_numpy(t).float().view(-1, 1).to(device).requires_grad_(True)
     with torch.no_grad():
         predictions = model(t_tensor)
         predictions = predictions.cpu().numpy()
-        # Revert Min-Max normalization
         predictions = predictions * (feature_max.values - feature_min.values) + feature_min.values
     return predictions
 
-# SIRD model differential equations
-def SIRD_model(y, t, beta, gamma, delta, N):
+def SIRD_model(y, t, beta, gamma, delta, population):
+    """
+    SIRD model differential equations.
+
+    Args:
+        y (list): State variables [S, I, R, D].
+        t (float): Time.
+        beta (float): Infection rate.
+        gamma (float): Recovery rate.
+        delta (float): Death rate.
+        population (int): Total population.
+
+    Returns:
+        list: Derivatives [dSdt, dIdt, dRdt, dDdt].
+    """
     S, I, R, D = y
-    dSdt = -beta * S * I / N
-    dIdt = beta * S * I / N - (gamma + delta) * I
+    dSdt = -beta * S * I / population
+    dIdt = beta * S * I / population - (gamma + delta) * I
     dRdt = gamma * I
     dDdt = delta * I
     return [dSdt, dIdt, dRdt, dDdt]
 
-# Prepare PyTorch tensors from the data
 def prepare_tensors(data, device):
+    """
+    Prepare PyTorch tensors from the data.
+
+    Args:
+        data (pd.DataFrame): DataFrame containing the data.
+        device (torch.device): Device for computation.
+
+    Returns:
+        tuple: Tensors for time, susceptible, infected, recovered, deceased.
+    """
     t = tensor(np.arange(1, len(data) + 1), dtype=torch.float32).view(-1, 1).to(device).requires_grad_(True)
     S = tensor(data["susceptible"].values, dtype=torch.float32).view(-1, 1).to(device)
     I = tensor(data["active_cases"].values, dtype=torch.float32).view(-1, 1).to(device)
@@ -240,13 +263,21 @@ def prepare_tensors(data, device):
     D = tensor(data["cumulative_deceased"].values, dtype=torch.float32).view(-1, 1).to(device)
     return t, S, I, R, D
 
-# Split and scale the data into training and validation sets using Min-Max normalization
 def split_and_scale_data(data, train_size, features, device):
-    # Initialize min and max values for each feature
+    """
+    Split and scale the data into training and validation sets using Min-Max normalization.
+
+    Args:
+        data (pd.DataFrame): DataFrame containing the data.
+        train_size (int): Size of the training set.
+        features (list): List of features to scale.
+        device (torch.device): Device for computation.
+
+    Returns:
+        tuple: Tensor data, feature min values, feature max values.
+    """
     feature_min = data[features].min()
     feature_max = data[features].max()
-
-    # Apply Min-Max normalization
     data[features] = (data[features] - feature_min) / (feature_max - feature_min)
 
     train_data = data.iloc[:train_size]
@@ -268,30 +299,41 @@ train_size = 200
 N = data["population"].values[0]
 tensor_data, feature_min, feature_max = split_and_scale_data(data, train_size, features, device)
 
-# PINN loss function
-def pinn_loss(tensor_data, parameters, model_output, t, N, train_size=None):
-    S_pred, I_pred, R_pred, D_pred = torch.split(model_output, 1, dim=1)
+def pinn_loss(tensor_data, model, model_output, t, population, train_size=None):
+    """
+    PINN loss function.
 
+    Args:
+        tensor_data (dict): Tensor data.
+        model (nn.Module): Model instance.
+        model_output (torch.Tensor): Model output.
+        t (torch.Tensor): Time tensor.
+        population (int): Total population.
+        train_size (int): Size of the training set.
+
+    Returns:
+        torch.Tensor: Total loss.
+    """
+    S_pred, I_pred, R_pred, D_pred = torch.split(model_output, 1, dim=1)
     S_train, I_train, R_train, D_train = tensor_data["train"][1:]
     S_val, I_val, R_val, D_val = tensor_data["val"][1:]
-    
+
     s_total = torch.cat([S_train, S_val])
     i_total = torch.cat([I_train, I_val])
     r_total = torch.cat([R_train, R_val])
     d_total = torch.cat([D_train, D_val])
-    
 
     s_t = grad(S_pred, t, grad_outputs=torch.ones_like(S_pred), create_graph=True)[0]
     i_t = grad(I_pred, t, grad_outputs=torch.ones_like(I_pred), create_graph=True)[0]
     r_t = grad(R_pred, t, grad_outputs=torch.ones_like(R_pred), create_graph=True)[0]
     d_t = grad(D_pred, t, grad_outputs=torch.ones_like(D_pred), create_graph=True)[0]
 
-    beta = parameters.beta
-    gamma = parameters.gamma
-    delta = parameters.delta
+    beta = model.beta
+    gamma = model.gamma
+    delta = model.delta
 
-    dSdt = -beta * S_pred * I_pred / N
-    dIdt = beta * S_pred * I_pred / N - (gamma + delta) * I_pred
+    dSdt = -beta * S_pred * I_pred / population
+    dIdt = beta * S_pred * I_pred / population - (gamma + delta) * I_pred
     dRdt = gamma * I_pred
     dDdt = delta * I_pred
 
@@ -323,12 +365,18 @@ def pinn_loss(tensor_data, parameters, model_output, t, N, train_size=None):
     )
 
     total_loss = data_fitting_loss + residual_loss + initial_condition_loss
-
     return total_loss
 
-# Early stopping class
 class EarlyStopping:
     def __init__(self, patience=10, verbose=False, delta=0):
+        """
+        Early stopping to stop training when validation loss doesn't improve.
+
+        Args:
+            patience (int): How long to wait after last time validation loss improved.
+            verbose (bool): If True, prints a message for each validation loss improvement.
+            delta (float): Minimum change in the monitored quantity to qualify as an improvement.
+        """
         self.patience = patience
         self.verbose = verbose
         self.delta = delta
@@ -368,7 +416,7 @@ optimizer = optim.Adam(model.parameters(), lr=1e-3)
 scheduler = StepLR(optimizer, step_size=10000, gamma=0.1)
 
 # Initialize early stopping
-earlystopping = EarlyStopping(patience=100, verbose=False)
+early_stopping = EarlyStopping(patience=100, verbose=False)
 
 # Set the number of epochs for training
 epochs = 100000
@@ -382,20 +430,37 @@ index = torch.randperm(len(tensor_data["train"][0]))
 # List to store loss history
 loss_history = []
 
-# Training loop function
-def train_loop(model, optimizer, scheduler, earlystopping, epochs, tensor_data, N, loss_history, index):
+def train_loop(model, optimizer, scheduler, early_stopping, epochs, tensor_data, population, loss_history, index):
+    """
+    Training loop for the SEIRD model.
+
+    Args:
+        model (nn.Module): Model instance.
+        optimizer (torch.optim.Optimizer): Optimizer.
+        scheduler (torch.optim.lr_scheduler._LRScheduler): Learning rate scheduler.
+        early_stopping (EarlyStopping): Early stopping instance.
+        epochs (int): Number of epochs.
+        tensor_data (dict): Tensor data.
+        population (int): Total population.
+        loss_history (list): List to store loss history.
+        index (torch.Tensor): Data index.
+
+    Returns:
+        nn.Module: Trained model.
+        list: Loss history.
+    """
     for epoch in tqdm(range(epochs)):
         model.train()
         optimizer.zero_grad()
         index = torch.randperm(len(tensor_data["train"][0]))
         model_output = model(t)
-        loss = pinn_loss(tensor_data, model, model_output, t, N, train_size=len(index))
+        loss = pinn_loss(tensor_data, model, model_output, t, population, train_size=len(index))
         loss.backward()
         optimizer.step()
         scheduler.step()
         loss_history.append(loss.item())
-        earlystopping(loss.item())
-        if earlystopping.early_stop:
+        early_stopping(loss.item())
+        if early_stopping.early_stop:
             print("Early stopping")
             break
         if (epoch + 1) % 1000 == 0:
@@ -403,7 +468,7 @@ def train_loop(model, optimizer, scheduler, earlystopping, epochs, tensor_data, 
     return model, loss_history
 
 # Train the model
-model, loss_history = train_loop(model, optimizer, scheduler, earlystopping, epochs, tensor_data, N, loss_history, index)
+model, loss_history = train_loop(model, optimizer, scheduler, early_stopping, epochs, tensor_data, N, loss_history, index)
 
 # Plot the loss history
 plt.figure()
@@ -417,7 +482,6 @@ plt.show()
 # Generate predictions for the entire dataset
 t_values = np.arange(len(data))
 predictions = network_prediction(t_values, model, device, feature_min, feature_max)
-
 dates = data["date"]
 
 # Extract predictions for each compartment
@@ -435,8 +499,18 @@ D_actual = data["cumulative_deceased"].values * (feature_max["cumulative_decease
 # Define training index size
 train_index_size = len(tensor_data["train"][0])
 
-# Plot predictions vs actual data for each compartment
 def plot_predictions_vs_actual(dates, actual, predicted, title, ylabel, train_index_size):
+    """
+    Plot predictions vs actual data for each compartment.
+
+    Args:
+        dates (pd.Series): Date series.
+        actual (np.ndarray): Actual values.
+        predicted (np.ndarray): Predicted values.
+        title (str): Plot title.
+        ylabel (str): Y-axis label.
+        train_index_size (int): Training index size.
+    """
     plt.figure(figsize=(12, 6))
     plt.plot(dates, actual, label="True", color="blue", linewidth=2)
     plt.plot(dates, predicted, label="Predicted", color="red", linestyle="--", linewidth=2)
@@ -452,7 +526,7 @@ def plot_predictions_vs_actual(dates, actual, predicted, title, ylabel, train_in
 
 plot_predictions_vs_actual(dates, S_actual, S_pred, "Susceptible Over Time", "Susceptible", train_index_size)
 plot_predictions_vs_actual(dates, I_actual, I_pred, "Active Cases Over Time", "Active Cases", train_index_size)
-plot_predictions_vs_actual(dates, R_actual, R_pred, "cumulative_recovered Over Time", "cumulative_recovered", train_index_size)
+plot_predictions_vs_actual(dates, R_actual, R_pred, "Recovered Over Time", "Recovered", train_index_size)
 plot_predictions_vs_actual(dates, D_actual, D_pred, "Deceased Over Time", "Deceased", train_index_size)
 
 # Extract the parameter values
@@ -473,13 +547,21 @@ output = pd.DataFrame({
     "cumulative_recovered": R_pred,
     "cumulative_deceased": D_pred,
 })
-output.to_csv(f"reports/output/{train_size}_pinn_{areaname}_output.csv", index=False)
-
-# Save the model
-# torch.save(model.state_dict(), f"models/{train_size}_pinn_{areaname}_model.pth")
+output.to_csv(f"reports/output/{train_size}_pinn_{area_name}_output.csv", index=False)
 
 # Function to calculate mean absolute scaled error (MASE)
 def mean_absolute_scaled_error(y_true, y_pred, benchmark=None):
+    """
+    Calculate mean absolute scaled error (MASE).
+
+    Args:
+        y_true (np.ndarray): True values.
+        y_pred (np.ndarray): Predicted values.
+        benchmark (np.ndarray): Benchmark values for scaling.
+
+    Returns:
+        float: MASE value.
+    """
     if benchmark is None:
         benchmark = np.roll(y_true, 1)
         benchmark[0] = y_true[0]
@@ -487,12 +569,33 @@ def mean_absolute_scaled_error(y_true, y_pred, benchmark=None):
     mae_model = mean_absolute_error(y_true, y_pred)
     return mae_model / mae_benchmark
 
-# Function to calculate forecast bias
 def forecast_bias(y_true, y_pred):
+    """
+    Calculate forecast bias.
+
+    Args:
+        y_true (np.ndarray): True values.
+        y_pred (np.ndarray): Predicted values.
+
+    Returns:
+        float: Forecast bias.
+    """
     return np.mean(y_pred - y_true)
 
-# Evaluate the trained model on the dataset and calculate evaluation metrics
 def evaluate_model(model, data, device, feature_min, feature_max):
+    """
+    Evaluate the trained model on the dataset and calculate evaluation metrics.
+
+    Args:
+        model (nn.Module): Trained model.
+        data (pd.DataFrame): DataFrame containing the data.
+        device (torch.device): Device for computation.
+        feature_min (pd.Series): Minimum feature values.
+        feature_max (pd.Series): Maximum feature values.
+
+    Returns:
+        dict: Evaluation results.
+    """
     model.eval()
     with torch.no_grad():
         t_values = np.arange(len(data))
@@ -553,4 +656,4 @@ results = evaluate_model(model, data, device, feature_min, feature_max)
 print(results)
 
 results_df = pd.DataFrame(results, index=[0])
-results_df.to_csv(f"reports/results/{train_size}_pinn_{areaname}_results.csv", index=False)
+results_df.to_csv(f"reports/results/{train_size}_pinn_{area_name}_results.csv", index=False)
