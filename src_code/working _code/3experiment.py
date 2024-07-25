@@ -224,7 +224,7 @@ data = load_and_preprocess_data(
     "../../data/processed/england_data.csv",
     "England",
     rolling_window=7,
-    start_date="2020-01-01",
+    start_date="2020-05-01",
     end_date="2021-12-31",
 )
 
@@ -279,6 +279,113 @@ features = [
 # Split and scale the data
 data_scaled, scaler = scale_data(train_data, features, device)
 
+# class ResidualBlock(nn.Module):
+#     def __init__(self, hidden_neurons):
+#         super(ResidualBlock, self).__init__()
+#         self.layer = nn.Sequential(
+#             nn.Linear(hidden_neurons, hidden_neurons),
+#             nn.Tanh(),
+#             nn.Linear(hidden_neurons, hidden_neurons),
+#         )
+#         self.activation = nn.Tanh()
+
+#     def forward(self, x):
+#         return self.activation(x + self.layer(x))
+
+# class EpiNet(nn.Module):
+#     def __init__(self, num_layers=2, hidden_neurons=10, output_size=8):
+#         super(EpiNet, self).__init__()
+#         self.retain_seed = 100
+#         torch.manual_seed(self.retain_seed)
+
+#         # Input layer
+#         layers = [nn.Linear(1, hidden_neurons), nn.Tanh()]
+
+#         # Hidden layers
+#         for _ in range(num_layers - 1):
+#             layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
+            
+            
+#         # for _ in range(num_layers):
+#         #     layers.append(ResidualBlock(hidden_neurons))
+        
+
+#         # Output layer
+#         layers.append(nn.Linear(hidden_neurons, output_size))
+#         self.net = nn.Sequential(*layers)
+
+#         # Initialize weights using Xavier initialization
+#         self.init_xavier()
+
+#     def forward(self, t):
+#         return torch.sigmoid(self.net(t))
+
+#     def init_xavier(self):
+#         def init_weights(layer):
+#             if isinstance(layer, nn.Linear):
+#                 g = nn.init.calculate_gain("tanh")
+#                 nn.init.xavier_normal_(layer.weight, gain=g)
+#                 if layer.bias is not None:
+#                     layer.bias.data.fill_(0.01)
+
+#         # Apply the weight initialization to the network
+#         self.net.apply(init_weights)
+
+# class ParameterNet(nn.Module):
+#     def __init__(self, num_layers=2, hidden_neurons=10, output_size=6):
+#         super(ParameterNet, self).__init__()
+#         self.retain_seed = 100
+#         torch.manual_seed(self.retain_seed)
+
+#         layers = [nn.Linear(1, hidden_neurons), nn.Tanh()]
+
+#         for _ in range(num_layers - 1):
+#             layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
+
+#         layers.append(nn.Linear(hidden_neurons, output_size))
+#         self.net = nn.Sequential(*layers)
+
+#         self.init_xavier()
+#         # torch.rand(1)
+#         # Define constant parameters as learnable parameters
+#         self.rho = nn.Parameter(torch.tensor(0.8))
+#         self.alpha = nn.Parameter(torch.tensor(1 / 5))
+#         self.ds = nn.Parameter(torch.tensor(1 / 4))
+#         self.da = nn.Parameter(torch.tensor(1 / 7))
+#         self.dH = nn.Parameter(torch.tensor(1 / 13.4))
+
+#     def forward(self, t):
+#         raw_parameters = self.net(t)
+
+#         # Apply the modified tanh function to represent constant parameters
+#         beta = torch.sigmoid(raw_parameters[:, 0]) 
+#         gamma_c = torch.sigmoid(raw_parameters[:, 1])
+#         delta_c = torch.sigmoid(raw_parameters[:, 2])
+#         eta = torch.sigmoid(raw_parameters[:, 3])
+#         mu = torch.sigmoid(raw_parameters[:, 4])
+#         omega = torch.sigmoid(raw_parameters[:, 5])
+
+#         return beta, gamma_c, delta_c, eta, mu, omega
+
+#     def get_constants(self):
+#         rho = torch.sigmoid(self.rho)
+#         alpha = torch.sigmoid(self.alpha)
+#         ds = torch.sigmoid(self.ds)
+#         da = torch.sigmoid(self.da)
+#         dH = torch.sigmoid(self.dH)
+#         return rho, alpha, ds, da, dH
+
+#     def init_xavier(self):
+#         def init_weights(layer):
+#             if isinstance(layer, nn.Linear):
+#                 g = nn.init.calculate_gain("tanh")
+#                 nn.init.xavier_normal_(layer.weight, gain=g)
+#                 if layer.bias is not None:
+#                     layer.bias.data.fill_(0.01)
+
+#         # Apply the weight initialization to the network
+#         self.net.apply(init_weights)
+
 class ResidualBlock(nn.Module):
     def __init__(self, hidden_neurons):
         super(ResidualBlock, self).__init__()
@@ -300,25 +407,51 @@ class EpiNet(nn.Module):
 
         # Input layer
         layers = [nn.Linear(1, hidden_neurons), nn.Tanh()]
-
-        # # Hidden layers
-        # for _ in range(num_layers - 1):
-        #     layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
-            
-            
+        
+        # Hidden layers with residual connections
         for _ in range(num_layers):
             layers.append(ResidualBlock(hidden_neurons))
         
-
         # Output layer
         layers.append(nn.Linear(hidden_neurons, output_size))
         self.net = nn.Sequential(*layers)
+        
+        self._rho = nn.Parameter(torch.tensor([torch.rand(1)], device=device), requires_grad=True)
+        self._alpha = nn.Parameter(torch.tensor([torch.rand(1)], device=device), requires_grad=True)
+        self._ds = nn.Parameter(torch.tensor([torch.rand(1)], device=device), requires_grad=True)
+        self._da = nn.Parameter(torch.tensor([torch.rand(1)], device=device), requires_grad=True)
+        self._dH = nn.Parameter(torch.tensor([torch.rand(1)], device=device), requires_grad=True)
 
         # Initialize weights using Xavier initialization
         self.init_xavier()
 
     def forward(self, t):
         return torch.sigmoid(self.net(t))
+    
+    @property
+    def rho(self):
+    
+        return torch.sigmoid(self._rho)
+    
+    @property
+    def alpha(self):
+        return torch.sigmoid(self._alpha)
+    
+    @property
+    def ds(self):
+        return torch.sigmoid(self._ds)
+    
+    @property
+    def da(self):
+        return torch.sigmoid(self._da)
+    
+    @property
+    def dH(self):
+        return torch.sigmoid(self._dH)
+
+    def get_constants(self):
+        """Retrieve the constants for the model."""
+        return self.rho, self.alpha, self.ds, self.da, self.dH
 
     def init_xavier(self):
         def init_weights(layer):
@@ -341,23 +474,20 @@ class ParameterNet(nn.Module):
 
         for _ in range(num_layers - 1):
             layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
+        
+        #         # Hidden layers with residual connections
+        # for _ in range(num_layers):
+        #     layers.append(ResidualBlock(hidden_neurons))
 
         layers.append(nn.Linear(hidden_neurons, output_size))
         self.net = nn.Sequential(*layers)
 
         self.init_xavier()
-        # torch.rand(1)
-        # Define constant parameters as learnable parameters
-        self.rho = nn.Parameter(torch.tensor(0.8))
-        self.alpha = nn.Parameter(torch.tensor(1 / 5))
-        self.ds = nn.Parameter(torch.tensor(1 / 4))
-        self.da = nn.Parameter(torch.tensor(1 / 7))
-        self.dH = nn.Parameter(torch.tensor(1 / 13.4))
 
     def forward(self, t):
         raw_parameters = self.net(t)
 
-        # Apply the modified tanh function to represent constant parameters
+        # Apply the sigmoid function to represent constant parameters
         beta = torch.sigmoid(raw_parameters[:, 0]) 
         gamma_c = torch.sigmoid(raw_parameters[:, 1])
         delta_c = torch.sigmoid(raw_parameters[:, 2])
@@ -366,14 +496,6 @@ class ParameterNet(nn.Module):
         omega = torch.sigmoid(raw_parameters[:, 5])
 
         return beta, gamma_c, delta_c, eta, mu, omega
-
-    def get_constants(self):
-        rho = torch.sigmoid(self.rho)
-        alpha = torch.sigmoid(self.alpha)
-        ds = torch.sigmoid(self.ds)
-        da = torch.sigmoid(self.da)
-        dH = torch.sigmoid(self.dH)
-        return rho, alpha, ds, da, dH
 
     def init_xavier(self):
         def init_weights(layer):
@@ -387,6 +509,7 @@ class ParameterNet(nn.Module):
         self.net.apply(init_weights)
 
 def einn_loss(model_output, tensor_data, parameters, t, constants):
+    """Calculate the EpiNet loss."""
     S_pred, E_pred, Is_pred, Ia_pred, H_pred, C_pred, R_pred, D_pred = (
         model_output[:, 0], model_output[:, 1], model_output[:, 2], model_output[:, 3],
         model_output[:, 4], model_output[:, 5], model_output[:, 6], model_output[:, 7]
@@ -417,6 +540,10 @@ def einn_loss(model_output, tensor_data, parameters, t, constants):
     
     residual_loss = torch.mean((S_t - dSdt) ** 2) + torch.mean((E_t - dEdt) ** 2) + torch.mean((Is_t - dIsdt) ** 2) + torch.mean((Ia_t - dIadt) ** 2) + torch.mean((H_t - dHdt) ** 2) + torch.mean((C_t - dCdt) ** 2) + torch.mean((R_t - dRdt) ** 2) + torch.mean((D_t - dDdt) ** 2)
     
+    # Initial condition loss
+    Is0, H0, C0, D0 = Is_data[0], H_data[0], C_data[0], D_data[0]
+    initial_cost = torch.mean((Is_pred[0] - Is0) ** 2) + torch.mean((H_pred[0] - H0) ** 2) + torch.mean((C_pred[0] - C0) ** 2) + torch.mean((D_pred[0] - D0) ** 2)
+    
     loss = data_loss + residual_loss
     return loss
 
@@ -444,16 +571,8 @@ class EarlyStopping:
             self.best_score = score
             self.counter = 0
 
-def train_model(
-    model,
-    parameter_net,
-    optimizer,
-    scheduler,
-    time_stamps,
-    data_scaled,
-    num_epochs=100,
-    early_stopping=None,
-):
+def train_model(model, parameter_net, optimizer, scheduler, time_stamps, data_scaled, num_epochs=100, early_stopping=None):
+    """Train the EpiNet model."""
     train_losses = []
 
     for epoch in tqdm(range(num_epochs)):
@@ -471,7 +590,7 @@ def train_model(
         # Forward pass
         model_output = model(t)
         parameters = parameter_net(t)
-        constants = parameter_net.get_constants()
+        constants = model.get_constants()
 
         # Compute loss
         loss = einn_loss(model_output, data, parameters, t, constants)
@@ -481,13 +600,11 @@ def train_model(
         optimizer.step()
 
         train_loss = loss.item()
-
         train_losses.append(train_loss)
-
         scheduler.step(train_loss)
 
         if (epoch + 1) % 1000 == 0 or epoch == 0:
-            print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {train_loss:.6f}")
+            print(f"Epoch {epoch + 1}/{num_epochs}, Train Loss: {train_loss:.6f}")
 
         # Check early stopping
         if early_stopping:
@@ -499,12 +616,11 @@ def train_model(
     return train_losses
 
 # Initialize model, optimizer, and scheduler
-model = EpiNet(num_layers=6, hidden_neurons=20, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=3, hidden_neurons=20, output_size=6).to(device)
+model = EpiNet(num_layers=5, hidden_neurons=20, output_size=8).to(device)
+parameter_net = ParameterNet(num_layers=1, hidden_neurons=20, output_size=6).to(device)
 optimizer = optim.Adam(
     list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4
 )
-
 scheduler = StepLR(optimizer, step_size=5000, gamma=0.9)
 
 # Early stopping

@@ -50,7 +50,8 @@ check_pytorch()
 plt.style.use("seaborn-v0_8-paper")
 plt.rcParams.update({
     "font.size": 14,
-    "figure.figsize": [10, 5],
+    "font.weight": "bold",
+    "figure.figsize": [10, 6],
     "text.usetex": False,
     "figure.facecolor": "white",
     "figure.autolayout": True,
@@ -63,7 +64,7 @@ plt.rcParams.update({
     "axes.labelsize": 12,
     "axes.titlesize": 18,
     "axes.facecolor": "white",
-    "axes.grid": True,
+    "axes.grid": False,
     "axes.spines.top": False,
     "axes.spines.right": False,
     "axes.formatter.limits": (0, 5),
@@ -479,8 +480,8 @@ def train_model(model, parameter_net, optimizer, scheduler, time_stamps, data_sc
     return train_losses
 
 # Initialize model, optimizer, and scheduler
-model = EpiNet(num_layers=5, hidden_neurons=32, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=3, hidden_neurons=32, output_size=6).to(device)
+model = EpiNet(num_layers=5, hidden_neurons=20, output_size=8).to(device)
+parameter_net = ParameterNet(num_layers=1, hidden_neurons=20, output_size=6).to(device)
 optimizer = optim.Adam(
     list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4
 )
@@ -545,65 +546,85 @@ observed_model_output_scaled = pd.DataFrame(
     index=data.index
 )
 
-# Plot Observed Data vs Predicted Data in 4x1 layout
-fig, axs = plt.subplots(4, 1, figsize=(12, 24), sharex=True)
+# Define unobserved model output
+unobserved_model_output = pd.DataFrame(
+    {
+        "S": model_output[:, 0].cpu().numpy(),
+        "E": model_output[:, 1].cpu().numpy(),
+        "Ia": model_output[:, 3].cpu().numpy(),
+        "R": model_output[:, 6].cpu().numpy(),
+    },
+    index=data.index,
+)
 
-def plot_observed_vs_predicted(ax, data, observed_model_output_scaled, variable, title, ylabel):
+# Plot Observed Data vs Predicted Data in 4x1 layout
+fig, axs = plt.subplots(4, 1, figsize=(8, 10), sharex=True)
+
+def plot_observed_vs_predicted(ax, data, observed_model_output_scaled, variable, ylabel):
     ax.plot(data["date"], data[variable], label="Observed", color="blue")
     ax.plot(data["date"], observed_model_output_scaled[variable], label="Predicted", color="red", linestyle="--")
     ax.set_ylabel(ylabel)
-    ax.set_title(title)
     ax.legend()
-    ax.grid(True)
+    ax.tick_params(axis='x', rotation=45)
 
-plot_observed_vs_predicted(axs[0], data, observed_model_output_scaled, "daily_confirmed", "Daily Confirmed Cases: Observed vs Predicted", "Daily Confirmed")
-plot_observed_vs_predicted(axs[1], data, observed_model_output_scaled, "daily_hospitalized", "Daily Hospitalized Cases: Observed vs Predicted", "Daily Hospitalized")
-plot_observed_vs_predicted(axs[2], data, observed_model_output_scaled, "covidOccupiedMVBeds", "COVID Occupied MV Beds: Observed vs Predicted", "COVID Occupied MV Beds")
-plot_observed_vs_predicted(axs[3], data, observed_model_output_scaled, "daily_deceased", "Daily Deceased Cases: Observed vs Predicted", "Daily Deceased")
+plot_observed_vs_predicted(axs[0], data, observed_model_output_scaled, "daily_confirmed", r"$I_s$")
+plot_observed_vs_predicted(axs[1], data, observed_model_output_scaled, "daily_hospitalized", r"$H$")
+plot_observed_vs_predicted(axs[2], data, observed_model_output_scaled, "covidOccupiedMVBeds", r"$C$")
+plot_observed_vs_predicted(axs[3], data, observed_model_output_scaled, "daily_deceased", r"$D$")
 
+fig.suptitle("Observed vs Predicted Data", fontsize=14, fontweight="bold")
 plt.xlabel("Date")
-plt.xticks(rotation=45)
-plt.tight_layout()
+plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 plt.show()
 
 # Unobserved Data Visualization in 4x1 layout
-fig, axs = plt.subplots(4, 1, figsize=(12, 24), sharex=True)
+fig, axs = plt.subplots(4, 1, figsize=(8, 10), sharex=True)
 
-def plot_unobserved_data(ax, unobserved_model_output, variable, title, ylabel):
+def plot_unobserved_data(ax, unobserved_model_output, variable, ylabel):
     ax.plot(data["date"], unobserved_model_output[variable], label="Predicted", color="green")
     ax.set_ylabel(ylabel)
-    ax.set_title(title)
     ax.legend()
-    ax.grid(True)
+    ax.tick_params(axis='x', rotation=45)
 
-plot_unobserved_data(axs[0], unobserved_model_output, "S", "Susceptible Population Over Time", "Susceptible")
-plot_unobserved_data(axs[1], unobserved_model_output, "E", "Exposed Population Over Time", "Exposed")
-plot_unobserved_data(axs[2], unobserved_model_output, "Ia", "Asymptomatic Infected Population Over Time", "Asymptomatic Infected")
-plot_unobserved_data(axs[3], unobserved_model_output, "R", "Recovered Population Over Time", "Recovered")
+plot_unobserved_data(axs[0], unobserved_model_output, "S", r"$S$")
+plot_unobserved_data(axs[1], unobserved_model_output, "E", r"$E$")
+plot_unobserved_data(axs[2], unobserved_model_output, "Ia", r"$I_a$")
+plot_unobserved_data(axs[3], unobserved_model_output, "R", r"$R$")
 
+fig.suptitle("Unobserved Data Predictions", fontsize=14, fontweight="bold")
 plt.xlabel("Date")
-plt.xticks(rotation=45)
-plt.tight_layout()
+plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 plt.show()
 
 # Time-Varying Parameter Estimation Visualization in 3x2 layout
-fig, axs = plt.subplots(3, 2, figsize=(18, 18), sharex=True)
+parameter_estimation = pd.DataFrame(
+    {
+        "beta": parameters[0].cpu().numpy(),
+        "gamma_c": parameters[1].cpu().numpy(),
+        "delta_c": parameters[2].cpu().numpy(),
+        "eta": parameters[3].cpu().numpy(),
+        "mu": parameters[4].cpu().numpy(),
+        "omega": parameters[5].cpu().numpy(),
+    },
+    index=data.index,
+)
 
-def plot_time_varying_parameters(ax, parameter_estimation, parameter, title, ylabel):
+fig, axs = plt.subplots(3, 2, figsize=(12, 10), sharex=True)
+
+def plot_time_varying_parameters(ax, parameter_estimation, parameter, ylabel):
     ax.plot(data["date"], parameter_estimation[parameter], label="Estimated", color="purple")
     ax.set_ylabel(ylabel)
-    ax.set_title(title)
     ax.legend()
-    ax.grid(True)
+    ax.tick_params(axis='x', rotation=45)
 
-plot_time_varying_parameters(axs[0, 0], parameter_estimation, "beta", "Time-Varying Beta", "Beta")
-plot_time_varying_parameters(axs[0, 1], parameter_estimation, "gamma_c", "Time-Varying Gamma_c", "Gamma_c")
-plot_time_varying_parameters(axs[1, 0], parameter_estimation, "delta_c", "Time-Varying Delta_c", "Delta_c")
-plot_time_varying_parameters(axs[1, 1], parameter_estimation, "eta", "Time-Varying Eta", "Eta")
-plot_time_varying_parameters(axs[2, 0], parameter_estimation, "mu", "Time-Varying Mu", "Mu")
-plot_time_varying_parameters(axs[2, 1], parameter_estimation, "omega", "Time-Varying Omega", "Omega")
+plot_time_varying_parameters(axs[0, 0], parameter_estimation, "beta", r"$\beta$")
+plot_time_varying_parameters(axs[0, 1], parameter_estimation, "gamma_c", r"$\gamma_c$")
+plot_time_varying_parameters(axs[1, 0], parameter_estimation, "delta_c", r"$\delta_c$")
+plot_time_varying_parameters(axs[1, 1], parameter_estimation, "eta", r"$\eta$")
+plot_time_varying_parameters(axs[2, 0], parameter_estimation, "mu", r"$\mu$")
+plot_time_varying_parameters(axs[2, 1], parameter_estimation, "omega", r"$\omega$")
 
+fig.suptitle("Time-Varying Parameter Estimation", fontsize=14, fontweight="bold")
 plt.xlabel("Date")
-plt.xticks(rotation=45)
-plt.tight_layout()
+plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 plt.show()
