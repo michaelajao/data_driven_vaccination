@@ -617,14 +617,14 @@ def train_model(model, parameter_net, optimizer, scheduler, time_stamps, data_sc
 
 # Initialize model, optimizer, and scheduler
 model = EpiNet(num_layers=5, hidden_neurons=20, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=5, hidden_neurons=20, output_size=6).to(device)
+parameter_net = ParameterNet(num_layers=3, hidden_neurons=10, output_size=6).to(device)
 optimizer = optim.Adam(
     list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4
 )
 scheduler = StepLR(optimizer, step_size=5000, gamma=0.9)
 
 # Early stopping
-early_stopping = EarlyStopping(patience=100, verbose=False)
+early_stopping = EarlyStopping(patience=200, verbose=False)
 
 # Create timestamps tensor
 time_stamps = (
