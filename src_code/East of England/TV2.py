@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
+import scienceplots
 from tqdm.notebook import tqdm
 import torch
 import torch.nn as nn
@@ -47,7 +48,8 @@ def check_pytorch():
 check_pytorch()
 
 # Set matplotlib style and parameters
-plt.style.use("seaborn-v0_8-paper")
+# plt.style.use("seaborn-v0_8-paper")
+plt.style.use(['science', 'ieee', 'no-latex'])
 plt.rcParams.update({
     "font.size": 14,
     "font.weight": "bold",
@@ -193,7 +195,7 @@ def load_preprocess_data(filepath, area_name, recovery_period=16, rolling_window
     
     return df
 
-data = load_preprocess_data("../../data/processed/merged_nhs_covid_data.csv", area_name, recovery_period=21, rolling_window=7, start_date="2020-05-01", end_date="2021-05-31")
+data = load_preprocess_data("../../data/processed/merged_nhs_covid_data.csv", area_name, recovery_period=21, rolling_window=7, start_date="2020-05-01", end_date="2021-12-31")
 
 # Plotting new deceased cases over time
 plt.plot(data["date"], data["daily_deceased"])
@@ -481,14 +483,14 @@ def train_model(model, parameter_net, optimizer, scheduler, time_stamps, data_sc
 
 # Initialize model, optimizer, and scheduler
 model = EpiNet(num_layers=6, hidden_neurons=20, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=6, hidden_neurons=20, output_size=6).to(device)
+parameter_net = ParameterNet(num_layers=4, hidden_neurons=20, output_size=6).to(device)
 optimizer = optim.Adam(
     list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4
 )
 scheduler = StepLR(optimizer, step_size=5000, gamma=0.8)
 
 # Early stopping
-early_stopping = EarlyStopping(patience=100, verbose=False)
+early_stopping = EarlyStopping(patience=200, verbose=False)
 
 # Create timestamps tensor
 time_stamps = (
