@@ -1,18 +1,20 @@
-# epinet_experiment.py
-
 import os
 import numpy as np
 import pandas as pd
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from cycler import cycler
 from matplotlib.ticker import MaxNLocator
+import scienceplots
 from tqdm.notebook import tqdm
 from scipy.integrate import odeint
+from collections import deque
 import torch
 import torch.nn as nn
 from torch.autograd import grad
 import torch.optim as optim
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
+from torchsummary import summary
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import (
     mean_absolute_error,
@@ -57,7 +59,10 @@ check_pytorch()
 # Device setup for CUDA or CPU
 def get_device():
     if torch.cuda.is_available():
-        return torch.device("cuda:0")
+        device_count = torch.cuda.device_count()
+        for i in range(device_count):
+            if torch.cuda.get_device_name(i):
+                return torch.device(f"cuda:{i}")
     return torch.device("cpu")
 
 
@@ -65,8 +70,7 @@ device = get_device()
 print(f"Using device: {device}")
 
 # Set a specific style for research paper quality plots
-# plt.style.use("seaborn-v0_8-paper")-
-plt.style.use(['science', 'no-latex'])
+plt.style.use(['science', 'ieee', 'no-latex'])
 # Customizing color cycle with monochrome settings for clarity in black-and-white printing
 mark_every = 0.1
 monochrome = (
@@ -92,8 +96,8 @@ plt.rcParams.update(
         "savefig.bbox": "tight",
         "axes.labelweight": "bold",
         "axes.titleweight": "bold",
-        "axes.labelsize": 16,
-        "axes.titlesize": 18,
+        "axes.labelsize": 14,
+        "axes.titlesize": 20,
         "axes.facecolor": "white",
         "axes.grid": False,
         "axes.spines.top": True,
@@ -103,7 +107,7 @@ plt.rcParams.update(
         "axes.formatter.useoffset": False,
         "axes.xmargin": 0,
         "axes.ymargin": 0,
-        "legend.fontsize": 14,
+        "legend.fontsize": 16,
         "legend.frameon": True,
         "legend.loc": "best",
         "lines.linewidth": 2.5,
@@ -124,8 +128,6 @@ plt.rcParams.update(
         "lines.antialiased": True,
         "patch.antialiased": True,
         "text.antialiased": True,
-        "pdf.fonttype": 42,
-        "ps.fonttype": 42,
         "axes.labelpad": 10,
         "axes.titlepad": 15,
         "xtick.major.pad": 5,
@@ -170,10 +172,10 @@ def save_metrics(metrics, areaname):
     print(f"Metrics saved to ../../reports/results/{areaname}_metrics.csv")
 
 
+# Define the SEIRD model differential equations
 def seird_model(
     y, t, N, beta, alpha, rho, ds, da, omega, dH, mu, gamma_c, delta_c, eta
 ):
-    """Define the SEIRD model differential equations."""
     S, E, Is, Ia, H, C, R, D = y
 
     dSdt = -beta * (Is + Ia) / N * S + (eta * R)
@@ -193,7 +195,6 @@ def seird_model(
 def load_and_preprocess_data(
     filepath, areaname, rolling_window=7, start_date="2020-04-01", end_date="2021-08-31"
 ):
-    """Load and preprocess the COVID-19 data."""
     df = pd.read_csv(filepath)
     df["date"] = pd.to_datetime(df["date"])
 
@@ -226,7 +227,7 @@ def load_and_preprocess_data(
     # Select required columns
     df = df[required_columns]
 
-    # Apply rolling average to smooth out data (except for date and population)
+    # Apply 7-day rolling average to smooth out data (except for date and population)
     for col in required_columns[2:]:
         df[col] = df[col].rolling(window=rolling_window, min_periods=1).mean().fillna(0)
 
@@ -237,7 +238,6 @@ def load_and_preprocess_data(
     return df
 
 
-# Load and preprocess the data
 data = load_and_preprocess_data(
     "../../data/processed/england_data.csv",
     "England",
@@ -246,8 +246,8 @@ data = load_and_preprocess_data(
     end_date="2021-12-31",
 )
 
-# Split data into training and validation sets
-train_data = data[:-7]  # Leave the last 7 days for validation
+# split data into training and validation sets, the validation should be the last 7 days
+train_data = data[:-7]
 val_data = data[-7:]
 
 
@@ -290,7 +290,6 @@ def scale_data(data, features, device):
     return data_scaled, scaler
 
 
-# Define features for scaling
 features = [
     "daily_confirmed",
     "daily_hospitalized",
@@ -303,8 +302,6 @@ data_scaled, scaler = scale_data(train_data, features, device)
 
 
 class ResidualBlock(nn.Module):
-    """Define a residual block for the neural network."""
-
     def __init__(self, hidden_neurons):
         super(ResidualBlock, self).__init__()
         self.layer = nn.Sequential(
@@ -319,8 +316,6 @@ class ResidualBlock(nn.Module):
 
 
 class EpiNet(nn.Module):
-    """Define the main neural network architecture for epidemic modeling."""
-
     def __init__(self, num_layers=2, hidden_neurons=10, output_size=8):
         super(EpiNet, self).__init__()
         self.retain_seed = 100
@@ -396,8 +391,6 @@ class EpiNet(nn.Module):
 
 
 class ParameterNet(nn.Module):
-    """Define the neural network for estimating time-varying parameters."""
-
     def __init__(self, num_layers=2, hidden_neurons=10, output_size=6):
         super(ParameterNet, self).__init__()
         self.retain_seed = 100
@@ -405,8 +398,11 @@ class ParameterNet(nn.Module):
 
         layers = [nn.Linear(1, hidden_neurons), nn.Tanh()]
 
-        for _ in range(num_layers - 1):
-            layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
+        # for _ in range(num_layers - 1):
+        #     layers.extend([nn.Linear(hidden_neurons, hidden_neurons), nn.Tanh()])
+        # Hidden layers with residual connections
+        for _ in range(num_layers):
+            layers.append(ResidualBlock(hidden_neurons))
 
         layers.append(nn.Linear(hidden_neurons, output_size))
         self.net = nn.Sequential(*layers)
@@ -521,8 +517,6 @@ def einn_loss(model_output, tensor_data, parameters, t, constants):
 
 
 class EarlyStopping:
-    """Early stopping to terminate training when validation loss is not decreasing."""
-
     def __init__(self, patience=200, verbose=False, delta=0):
         self.patience = patience
         self.verbose = verbose
@@ -602,8 +596,8 @@ def train_model(
 
 
 # Initialize model, optimizer, and scheduler
-model = EpiNet(num_layers=6, hidden_neurons=20, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=4, hidden_neurons=20, output_size=6).to(device)
+model = EpiNet(num_layers=6, hidden_neurons=32, output_size=8).to(device)
+parameter_net = ParameterNet(num_layers=6, hidden_neurons=32, output_size=6).to(device)
 optimizer = optim.Adam(
     list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4
 )
@@ -634,22 +628,158 @@ train_losses = train_model(
 
 # Plot training loss
 plt.plot(train_losses, label="Train Loss")
-plt.xlabel("Epoch", fontsize=16, weight="bold")
+plt.xlabel("Epoch")
 plt.yscale("log")
-plt.ylabel("Loss", fontsize=16, weight="bold")
-plt.title("Training Loss over Epochs", fontsize=18, weight="bold")
-plt.legend(fontsize=14)
+plt.ylabel("Loss")
+plt.title("Training Loss over Epochs")
+plt.legend()
 plt.savefig("../../reports/figures/training_loss.pdf")
 plt.savefig("../../reports/figures/training_loss.png")  # Save as PNG
 plt.show()
 
 # Save the trained model
-torch.save(model.state_dict(), "../../models/epinet_model.pth")
-torch.save(parameter_net.state_dict(), "../../models/parameter_net.pth")
+torch.save(model.state_dict(), "../../models/epinet_model3.pth")
+torch.save(parameter_net.state_dict(), "../../models/parameter_net3.pth")
 
 # Load the trained model
-model.load_state_dict(torch.load("../../models/epinet_model.pth"))
-parameter_net.load_state_dict(torch.load("../../models/parameter_net.pth"))
+model.load_state_dict(torch.load("../../models/epinet_model3.pth"))
+parameter_net.load_state_dict(torch.load("../../models/parameter_net3.pth"))
+
+
+def plot_observed_vs_predicted(dates, data, observed_model_output_scaled):
+    """Plot observed vs predicted data."""
+    fig, axs = plt.subplots(2, 2, figsize=(12, 10), sharex=True)
+    axs[0, 0].plot(dates, data["daily_confirmed"], color="blue")
+    axs[0, 0].plot(
+        dates,
+        observed_model_output_scaled[:, 0],
+        linestyle="--",
+        color="red",
+    )
+    axs[0, 0].set_ylabel("New Confirmed Cases")
+    axs[0, 0].set_xlabel("Date")
+
+    axs[0, 1].plot(dates, data["daily_hospitalized"], color="blue")
+    axs[0, 1].plot(
+        dates,
+        observed_model_output_scaled[:, 1],
+        linestyle="--",
+        color="red",
+    )
+    axs[0, 1].set_ylabel("New Admissions")
+    axs[0, 1].set_xlabel("Date")
+
+    axs[1, 0].plot(dates, data["covidOccupiedMVBeds"], color="blue")
+    axs[1, 0].plot(
+        dates,
+        observed_model_output_scaled[:, 2],
+        linestyle="--",
+        color="red",
+    )
+    axs[1, 0].set_ylabel("Critical Cases")
+    axs[1, 0].set_xlabel("Date")
+
+    axs[1, 1].plot(dates, data["daily_deceased"], color="blue")
+    axs[1, 1].plot(
+        dates,
+        observed_model_output_scaled[:, 3],
+        linestyle="--",
+        color="red",
+    )
+    axs[1, 1].set_ylabel("New Deaths")
+    axs[1, 1].set_xlabel("Date")
+
+    for ax in axs.flat:
+        ax.tick_params(axis="x", rotation=45)
+        ax.tick_params(axis="y")
+        ax.legend(["Observed", "Predicted"])
+
+    plt.tight_layout()
+    plt.savefig("../../reports/figures/observed_vs_predicted.pdf")
+    plt.savefig("../../reports/figures/observed_vs_predicted.png")
+    plt.show()
+
+
+def plot_unobserved_states(dates, model_output):
+    """Plot unobserved states."""
+    fig, axs = plt.subplots(2, 2, figsize=(12, 10), sharex=True)
+    axs[0, 0].plot(
+        dates,
+        model_output[:, 0].cpu(),
+        label=r"$S$",
+        color="green",
+    )
+    axs[0, 0].set_ylabel(r"$S$")
+    axs[0, 0].set_xlabel("Date")
+
+    axs[0, 1].plot(
+        dates, model_output[:, 1].cpu(), label=r"$E$", color="green"
+    )
+    axs[0, 1].set_ylabel(r"$E$")
+    axs[0, 1].set_xlabel("Date")
+
+    axs[1, 0].plot(
+        dates,
+        model_output[:, 3].cpu(),
+        label=r"$I_a$",
+        color="green",
+    )
+    axs[1, 0].set_ylabel(r"$I_a$")
+    axs[1, 0].set_xlabel("Date")
+
+    axs[1, 1].plot(
+        dates, model_output[:, 6].cpu(), label=r"$R$", color="green"
+    )
+    axs[1, 1].set_ylabel(r"$R$")
+    axs[1, 1].set_xlabel("Date")
+
+    for ax in axs.flat:
+        ax.tick_params(axis="x", rotation=45)
+        ax.tick_params(axis="y")
+
+    plt.tight_layout()
+    plt.savefig("../../reports/figures/unobserved_outputs.pdf")
+    plt.savefig("../../reports/figures/unobserved_outputs.png")
+    plt.show()
+
+
+def plot_time_varying_parameters(dates, parameters):
+    """Plot time-varying parameters."""
+    fig, axs = plt.subplots(3, 2, figsize=(15, 12), sharex=True)
+    parameters_np = [p.cpu().numpy() for p in parameters]
+
+    latex_labels = [
+        r"$\beta$",
+        r"$\gamma_c$",
+        r"$\delta_c$",
+        r"$\eta$",
+        r"$\mu$",
+        r"$\omega$",
+    ]
+    colors = [
+        "purple",
+        "red",
+        "orange",
+        "blue",
+        "green",
+        "violet",
+    ]
+
+    for i, (ax, param, label, color) in enumerate(
+        zip(axs.flat, parameters_np, latex_labels, colors)
+    ):
+        ax.plot(dates, param, label=label, color=color)
+        ax.set_ylabel(label)
+        ax.set_xlabel("Date")
+        ax.tick_params(axis="x", rotation=45)
+        ax.tick_params(axis="y")
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.legend()
+
+    plt.tight_layout(pad=2.0)
+    plt.savefig("../../reports/figures/time_varying_parameters.pdf", bbox_inches="tight")
+    plt.savefig("../../reports/figures/time_varying_parameters.png", bbox_inches="tight")
+    plt.show()
 
 
 def plot_model_outputs(model, time_stamps, parameter_net, data, scaler):
@@ -674,156 +804,17 @@ def plot_model_outputs(model, time_stamps, parameter_net, data, scaler):
     observed_model_output_scaled = scaler.inverse_transform(observed_model_output)
     dates = data["date"]
 
-    # Plot observed vs predicted data
-    fig, axs = plt.subplots(2, 2, figsize=(18, 12), sharex=True)
-    axs[0, 0].plot(dates, data["daily_confirmed"], color="blue", linewidth=2.5)
-    axs[0, 0].plot(
-        dates,
-        observed_model_output_scaled[:, 0],
-        linestyle="--",
-        color="red",
-        linewidth=2.5,
-    )
-    axs[0, 0].set_ylabel("New Confirmed Cases", fontsize=14, weight="bold")
-    axs[0, 0].set_xlabel("Date", fontsize=14, weight="bold")
+    plot_observed_vs_predicted(dates, data, observed_model_output_scaled)
+    plot_unobserved_states(dates, model_output)
+    plot_time_varying_parameters(dates, parameters)
 
-    axs[0, 1].plot(dates, data["daily_hospitalized"], color="blue", linewidth=2.5)
-    axs[0, 1].plot(
-        dates,
-        observed_model_output_scaled[:, 1],
-        linestyle="--",
-        color="red",
-        linewidth=2.5,
-    )
-    axs[0, 1].set_ylabel("New Admissions", fontsize=14, weight="bold")
-    axs[0, 1].set_xlabel("Date", fontsize=14, weight="bold")
-
-    axs[1, 0].plot(dates, data["covidOccupiedMVBeds"], color="blue", linewidth=2.5)
-    axs[1, 0].plot(
-        dates,
-        observed_model_output_scaled[:, 2],
-        linestyle="--",
-        color="red",
-        linewidth=2.5,
-    )
-    axs[1, 0].set_ylabel("Critical Cases", fontsize=14, weight="bold")
-    axs[1, 0].set_xlabel("Date", fontsize=14, weight="bold")
-
-    axs[1, 1].plot(dates, data["daily_deceased"], color="blue", linewidth=2.5)
-    axs[1, 1].plot(
-        dates,
-        observed_model_output_scaled[:, 3],
-        linestyle="--",
-        color="red",
-        linewidth=2.5,
-    )
-    axs[1, 1].set_ylabel("New Deaths", fontsize=14, weight="bold")
-    axs[1, 1].set_xlabel("Date", fontsize=14, weight="bold")
-
-    for ax in axs.flat:
-        ax.tick_params(axis="x", rotation=45, labelsize=14)
-        ax.tick_params(axis="y", labelsize=14)
-        ax.legend(["Observed", "Predicted"], fontsize=14)
-
-    plt.tight_layout()
-    plt.savefig("../../reports/figures/observed_vs_predicted.pdf")
-    plt.savefig("../../reports/figures/observed_vs_predicted.png")  # Save as PNG
-    plt.show()
-
-    # Plot unobserved states
-    fig, axs = plt.subplots(2, 2, figsize=(18, 12), sharex=True)
-    axs[0, 0].plot(
-        dates,
-        model_output[:, 0].cpu(),
-        label="Susceptible",
-        color="green",
-        linewidth=2.5,
-    )
-    axs[0, 0].set_ylabel("Susceptible", fontsize=14, weight="bold")
-    axs[0, 0].set_xlabel("Date", fontsize=14, weight="bold")
-
-    axs[0, 1].plot(
-        dates, model_output[:, 1].cpu(), label="Exposed", color="green", linewidth=2.5
-    )
-    axs[0, 1].set_ylabel("Exposed", fontsize=14, weight="bold")
-    axs[0, 1].set_xlabel("Date", fontsize=14, weight="bold")
-
-    axs[1, 0].plot(
-        dates,
-        model_output[:, 3].cpu(),
-        label="Asymptomatic",
-        color="green",
-        linewidth=2.5,
-    )
-    axs[1, 0].set_ylabel("Asymptomatic", fontsize=14, weight="bold")
-    axs[1, 0].set_xlabel("Date", fontsize=14, weight="bold")
-
-    axs[1, 1].plot(
-        dates, model_output[:, 6].cpu(), label="Recovered", color="green", linewidth=2.5
-    )
-    axs[1, 1].set_ylabel("Recovered", fontsize=14, weight="bold")
-    axs[1, 1].set_xlabel("Date", fontsize=14, weight="bold")
-
-    for ax in axs.flat:
-        ax.tick_params(axis="x", rotation=45, labelsize=14)
-        ax.tick_params(axis="y", labelsize=14)
-
-    plt.tight_layout()
-    plt.savefig("../../reports/figures/unobserved_outputs.pdf")
-    plt.savefig("../../reports/figures/unobserved_outputs.png")  # Save as PNG
-    plt.show()
-
-    # Plot time-varying parameters
-    fig, axs = plt.subplots(3, 2, figsize=(20, 15), sharex=True)
-    parameters_np = [p.cpu().numpy() for p in parameters]
-
-    # Define the LaTeX labels for the parameters
-    latex_labels = [
-        r"$\beta$",
-        r"$\gamma_c$",
-        r"$\delta_c$",
-        r"$\eta$",
-        r"$\mu$",
-        r"$\omega$",
-    ]
-    colors = [
-        "purple",
-        "red",
-        "orange",
-        "blue",
-        "green",
-        "violet",
-    ]  # Use a list for colors in case you want to customize further
-
-    # Plot each parameter with its corresponding label
-    for i, (ax, param, label, color) in enumerate(
-        zip(axs.flat, parameters_np, latex_labels, colors)
-    ):
-        ax.plot(dates, param, label=label, color=color, linewidth=2.5)
-        ax.set_ylabel(label, fontsize=16, weight="bold")
-        ax.set_xlabel("Date", fontsize=16, weight="bold")
-        ax.tick_params(axis="x", rotation=45, labelsize=14)
-        ax.tick_params(axis="y", labelsize=14)
-        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        ax.legend(fontsize=14)
-
-    plt.tight_layout(pad=2.0)
-    plt.savefig(
-        "../../reports/figures/time_varying_parameters.pdf", bbox_inches="tight"
-    )
-    plt.savefig(
-        "../../reports/figures/time_varying_parameters.png", bbox_inches="tight"
-    )  # Save as PNG
-    plt.show()
-
-    return parameters_np, observed_model_output_scaled
+    return parameters, observed_model_output_scaled
 
 
-parameters_np, observed_model_output_scaled = plot_model_outputs(
+parameters, observed_model_output_scaled = plot_model_outputs(
     model, time_stamps, parameter_net, train_data, scaler
 )
 
-# Evaluate the predictions on the observed data
 I, H, C, D = prepare_tensors(train_data, device)
 I_pred, H_pred, C_pred, D_pred = (
     observed_model_output_scaled[:, 0],
@@ -832,10 +823,8 @@ I_pred, H_pred, C_pred, D_pred = (
     observed_model_output_scaled[:, 3],
 )
 
-# Collect metrics
 metrics = []
 
-# Calculate and print errors for each metric
 metric_names = ["NRMSE", "MASE", "MAE", "MAPE"]
 areas = ["Infections", "Hospitalizations", "Critical", "Deaths"]
 observed_data = [I.cpu().numpy(), H.cpu().numpy(), C.cpu().numpy(), D.cpu().numpy()]
@@ -862,18 +851,16 @@ for obs, pred, train, area in zip(
     metrics.append([f"{area}_MAE", mae])
     metrics.append([f"{area}_MAPE", mape])
 
-# Save metrics to CSV
 save_metrics(metrics, "England")
 
 
-def plot_7_days_forecast_and_validation(
-    model, parameter_net, train_data, val_data, scaler, device
+def plot_forecast_and_validation(
+    model, parameter_net, train_data, val_data, scaler, device, days, filename
 ):
     """Plot the forecast and validation data."""
     model.eval()
     parameter_net.eval()
 
-    # Generate future time steps for validation
     future_dates = val_data["date"]
     future_time_stamps = (
         torch.tensor(val_data.index.values, dtype=torch.float32).view(-1, 1).to(device)
@@ -882,7 +869,6 @@ def plot_7_days_forecast_and_validation(
     with torch.no_grad():
         future_model_output = model(future_time_stamps)
 
-    # Scale the future model outputs back to original scale
     future_forecast = pd.DataFrame(
         {
             "daily_confirmed": future_model_output[:, 2].cpu().numpy(),
@@ -895,8 +881,7 @@ def plot_7_days_forecast_and_validation(
 
     future_forecast_scaled = scaler.inverse_transform(future_forecast)
 
-    # Plot the forecasted values
-    fig, axs = plt.subplots(2, 2, figsize=(18, 12), sharex=True)
+    fig, axs = plt.subplots(2, 2, figsize=(12, 10), sharex=True)
 
     axs[0, 0].plot(
         val_data["date"], val_data["daily_confirmed"], label="Observed", color="blue"
@@ -908,8 +893,8 @@ def plot_7_days_forecast_and_validation(
         linestyle="--",
         color="red",
     )
-    axs[0, 0].set_ylabel("New Confirmed Cases", fontsize=14, weight="bold")
-    axs[0, 0].set_xlabel("Date", fontsize=14, weight="bold")
+    axs[0, 0].set_ylabel("New Confirmed Cases")
+    axs[0, 0].set_xlabel("Date")
 
     axs[0, 1].plot(
         val_data["date"], val_data["daily_hospitalized"], label="Observed", color="blue"
@@ -921,14 +906,11 @@ def plot_7_days_forecast_and_validation(
         linestyle="--",
         color="red",
     )
-    axs[0, 1].set_ylabel("New Admissions", fontsize=14, weight="bold")
-    axs[0, 1].set_xlabel("Date", fontsize=14, weight="bold")
+    axs[0, 1].set_ylabel("New Admissions")
+    axs[0, 1].set_xlabel("Date")
 
     axs[1, 0].plot(
-        val_data["date"],
-        val_data["covidOccupiedMVBeds"],
-        label="Observed",
-        color="blue",
+        val_data["date"], val_data["covidOccupiedMVBeds"], label="Observed", color="blue"
     )
     axs[1, 0].plot(
         val_data["date"],
@@ -937,8 +919,8 @@ def plot_7_days_forecast_and_validation(
         linestyle="--",
         color="red",
     )
-    axs[1, 0].set_ylabel("Critical Cases", fontsize=14, weight="bold")
-    axs[1, 0].set_xlabel("Date", fontsize=14, weight="bold")
+    axs[1, 0].set_ylabel("Critical Cases")
+    axs[1, 0].set_xlabel("Date")
 
     axs[1, 1].plot(
         val_data["date"], val_data["daily_deceased"], label="Observed", color="blue"
@@ -950,65 +932,72 @@ def plot_7_days_forecast_and_validation(
         linestyle="--",
         color="red",
     )
-    axs[1, 1].set_ylabel("New Deaths", fontsize=14, weight="bold")
-    axs[1, 1].set_xlabel("Date", fontsize=14, weight="bold")
+    axs[1, 1].set_ylabel("New Deaths")
+    axs[1, 1].set_xlabel("Date")
 
     for ax in axs.flat:
-        ax.tick_params(axis="x", rotation=45, labelsize=14)
-        ax.tick_params(axis="y", labelsize=14)
-        ax.legend(fontsize=14)
+        ax.tick_params(axis="x", rotation=45)
+        ax.tick_params(axis="y")
+        ax.legend()
 
     plt.tight_layout()
-    plt.savefig("../../reports/figures/7_days_forecast_validation.pdf")
-    plt.savefig("../../reports/figures/7_days_forecast_validation.png")  # Save as PNG
+    plt.savefig(f"../../reports/figures/{filename}.pdf")
+    plt.savefig(f"../../reports/figures/{filename}.png")
     plt.show()
 
     return future_forecast_scaled
 
 
-# Plot the 7 days forecast and validation
-future_forecast_scaled = plot_7_days_forecast_and_validation(
-    model, parameter_net, train_data, val_data, scaler, device
-)
+all_forecast_metrics = []
 
-# Evaluate the predictions on the validation data
-val_I, val_H, val_C, val_D = prepare_tensors(val_data, device)
-val_I_pred, val_H_pred, val_C_pred, val_D_pred = (
-    future_forecast_scaled[:, 0],
-    future_forecast_scaled[:, 1],
-    future_forecast_scaled[:, 2],
-    future_forecast_scaled[:, 3],
-)
+days_forecasts = [7, 14, 21, 28]
+for days in days_forecasts:
+    val_data = data[-days:]
+    future_forecast_scaled = plot_forecast_and_validation(
+        model, parameter_net, train_data, val_data, scaler, device, days, f"{days}_days_forecast_validation"
+    )
 
-# Collect metrics for 7 days
-metrics_7_days = []
+    val_I, val_H, val_C, val_D = prepare_tensors(val_data, device)
+    val_I_pred, val_H_pred, val_C_pred, val_D_pred = (
+        future_forecast_scaled[:, 0],
+        future_forecast_scaled[:, 1],
+        future_forecast_scaled[:, 2],
+        future_forecast_scaled[:, 3],
+    )
 
-# Calculate and print errors for each metric for 7 days
-for obs, pred, train, area in zip(
-    [
-        val_I.cpu().numpy(),
-        val_H.cpu().numpy(),
-        val_C.cpu().numpy(),
-        val_D.cpu().numpy(),
-    ],
-    [val_I_pred, val_H_pred, val_C_pred, val_D_pred],
-    train_data_values,
-    areas,
-):
-    nrmse, mase, mae, mape = calculate_errors(obs, pred, train)
-    print(f"Metrics for {area} (7 days):")
-    print(f"Normalized Root Mean Square Error (NRMSE): {nrmse:.4f}")
-    print(f"Mean Absolute Scaled Error (MASE): {mase:.4f}")
-    print(f"Mean Absolute Error (MAE): {mae:.4f}")
-    print(f"Mean Absolute Percentage Error (MAPE): {mape:.4f}")
+    metrics_days = []
 
-    metrics_7_days.append([f"{area}_NRMSE", nrmse])
-    metrics_7_days.append([f"{area}_MASE", mase])
-    metrics_7_days.append([f"{area}_MAE", mae])
-    metrics_7_days.append([f"{area}_MAPE", mape])
+    for obs, pred, train, area in zip(
+        [
+            val_I.cpu().numpy(),
+            val_H.cpu().numpy(),
+            val_C.cpu().numpy(),
+            val_D.cpu().numpy(),
+        ],
+        [val_I_pred, val_H_pred, val_C_pred, val_D_pred],
+        train_data_values,
+        areas,
+    ):
+        nrmse, mase, mae, mape = calculate_errors(obs, pred, train)
+        print(f"Metrics for {area} ({days} days):")
+        print(f"Normalized Root Mean Square Error (NRMSE): {nrmse:.4f}")
+        print(f"Mean Absolute Scaled Error (MASE): {mase:.4f}")
+        print(f"Mean Absolute Error (MAE): {mae:.4f}")
+        print(f"Mean Absolute Percentage Error (MAPE): {mape:.4f}")
 
-# Save metrics for 7 days to CSV
-save_metrics(metrics_7_days, "England_7_days")
+        metrics_days.append([f"{area}_NRMSE", nrmse])
+        metrics_days.append([f"{area}_MASE", mase])
+        metrics_days.append([f"{area}_MAE", mae])
+        metrics_days.append([f"{area}_MAPE", mape])
 
-# Repeat similar steps for 14 days, 21 days, and 28 days forecasts if needed
-# ...
+        all_forecast_metrics.append([f"{days}_days_{area}_NRMSE", nrmse])
+        all_forecast_metrics.append([f"{days}_days_{area}_MASE", mase])
+        all_forecast_metrics.append([f"{days}_days_{area}_MAE", mae])
+        all_forecast_metrics.append([f"{days}_days_{area}_MAPE", mape])
+
+    save_metrics(metrics_days, f"England_{days}_days")
+
+# Save all forecast metrics to a single DataFrame
+all_forecast_metrics_df = pd.DataFrame(all_forecast_metrics, columns=["Metric", "Value"])
+all_forecast_metrics_df.to_csv(f"../../reports/results/England_all_forecast_metrics.csv", index=False)
+print(f"All forecast metrics saved to ../../reports/results/England_all_forecast_metrics.csv")

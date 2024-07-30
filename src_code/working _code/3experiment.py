@@ -5,6 +5,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 from cycler import cycler
 from matplotlib.ticker import MaxNLocator
+import scienceplots
 from tqdm.notebook import tqdm
 from scipy.integrate import odeint
 from collections import deque
@@ -69,8 +70,8 @@ device = get_device()
 print(f"Using device: {device}")
 
 # Set a specific style for research paper quality plots
-plt.style.use("seaborn-v0_8-paper")
-
+# plt.style.use("seaborn-v0_8-paper")
+plt.style.use(['science', 'ieee', 'no-latex'])
 # Customizing color cycle with monochrome settings for clarity in black-and-white printing
 mark_every = 0.1
 monochrome = (
@@ -708,8 +709,8 @@ def train_model(
 
 
 # Initialize model, optimizer, and scheduler
-model = EpiNet(num_layers=6, hidden_neurons=20, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=4, hidden_neurons=15, output_size=6).to(device)
+model = EpiNet(num_layers=6, hidden_neurons=32, output_size=8).to(device)
+parameter_net = ParameterNet(num_layers=6, hidden_neurons=32, output_size=6).to(device)
 optimizer = optim.Adam(
     list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4
 )
@@ -790,8 +791,8 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
         color="red",
         linewidth=2.5,
     )
-    axs[0, 0].set_ylabel("New Confirmed Cases", fontsize=14, weight="bold")
-    axs[0, 0].set_xlabel("Date", fontsize=14, weight="bold")
+    axs[0, 0].set_ylabel("New Confirmed Cases", fontsize=20, weight="bold")
+    axs[0, 0].set_xlabel("Date", fontsize=20, weight="bold")
 
     axs[0, 1].plot(dates, data["daily_hospitalized"], color="blue", linewidth=2.5)
     axs[0, 1].plot(
@@ -801,8 +802,8 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
         color="red",
         linewidth=2.5,
     )
-    axs[0, 1].set_ylabel("New Admissions", fontsize=14, weight="bold")
-    axs[0, 1].set_xlabel("Date", fontsize=14, weight="bold")
+    axs[0, 1].set_ylabel("New Admissions", fontsize=20, weight="bold")
+    axs[0, 1].set_xlabel("Date", fontsize=20, weight="bold")
 
     axs[1, 0].plot(dates, data["covidOccupiedMVBeds"], color="blue", linewidth=2.5)
     axs[1, 0].plot(
@@ -812,8 +813,8 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
         color="red",
         linewidth=2.5,
     )
-    axs[1, 0].set_ylabel("Critical Cases", fontsize=14, weight="bold")
-    axs[1, 0].set_xlabel("Date", fontsize=14, weight="bold")
+    axs[1, 0].set_ylabel("Critical Cases", fontsize=20, weight="bold")
+    axs[1, 0].set_xlabel("Date", fontsize=20, weight="bold")
 
     axs[1, 1].plot(dates, data["daily_deceased"], color="blue", linewidth=2.5)
     axs[1, 1].plot(
@@ -823,13 +824,13 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
         color="red",
         linewidth=2.5,
     )
-    axs[1, 1].set_ylabel("New Deaths", fontsize=14, weight="bold")
-    axs[1, 1].set_xlabel("Date", fontsize=14, weight="bold")
+    axs[1, 1].set_ylabel("New Deaths", fontsize=20, weight="bold")
+    axs[1, 1].set_xlabel("Date", fontsize=20, weight="bold")
 
     for ax in axs.flat:
-        ax.tick_params(axis="x", rotation=45, labelsize=14)
-        ax.tick_params(axis="y", labelsize=14)
-        ax.legend(["Observed", "Predicted"], fontsize=14)
+        ax.tick_params(axis="x", rotation=45, labelsize=20)
+        ax.tick_params(axis="y", labelsize=20)
+        ax.legend(["Observed", "Predicted"], fontsize=20)
 
     plt.tight_layout()
     plt.savefig("../../reports/figures/observed_vs_predicted.pdf")
@@ -844,14 +845,14 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
         color="green",
         linewidth=2.5,
     )
-    axs[0, 0].set_ylabel("Susceptible", fontsize=14, weight="bold")
-    axs[0, 0].set_xlabel("Date", fontsize=14, weight="bold")
+    axs[0, 0].set_ylabel("Susceptible", fontsize=20, weight="bold")
+    axs[0, 0].set_xlabel("Date", fontsize=20, weight="bold")
 
     axs[0, 1].plot(
         dates, model_output[:, 1].cpu(), label="Exposed", color="green", linewidth=2.5
     )
-    axs[0, 1].set_ylabel("Exposed", fontsize=14, weight="bold")
-    axs[0, 1].set_xlabel("Date", fontsize=14, weight="bold")
+    axs[0, 1].set_ylabel("Exposed", fontsize=20, weight="bold")
+    axs[0, 1].set_xlabel("Date", fontsize=20, weight="bold")
 
     axs[1, 0].plot(
         dates,
@@ -860,18 +861,18 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
         color="green",
         linewidth=2.5,
     )
-    axs[1, 0].set_ylabel("Asymptomatic", fontsize=14, weight="bold")
-    axs[1, 0].set_xlabel("Date", fontsize=14, weight="bold")
+    axs[1, 0].set_ylabel("Asymptomatic", fontsize=20, weight="bold")
+    axs[1, 0].set_xlabel("Date", fontsize=20, weight="bold")
 
     axs[1, 1].plot(
         dates, model_output[:, 6].cpu(), label="Recovered", color="green", linewidth=2.5
     )
-    axs[1, 1].set_ylabel("Recovered", fontsize=14, weight="bold")
-    axs[1, 1].set_xlabel("Date", fontsize=14, weight="bold")
+    axs[1, 1].set_ylabel("Recovered", fontsize=20, weight="bold")
+    axs[1, 1].set_xlabel("Date", fontsize=20, weight="bold")
 
     for ax in axs.flat:
-        ax.tick_params(axis="x", rotation=45, labelsize=14)
-        ax.tick_params(axis="y", labelsize=14)
+        ax.tick_params(axis="x", rotation=45, labelsize=20)
+        ax.tick_params(axis="y", labelsize=20)
 
     plt.tight_layout()
     plt.savefig("../../reports/figures/unobserved_outputs.pdf")
@@ -906,10 +907,10 @@ def plot_outputs(model, t, parameter_net, data, device, scaler):
         ax.plot(dates, param, label=label, color=color, linewidth=2.5)
         ax.set_ylabel(label, fontsize=16, weight="bold")
         ax.set_xlabel("Date", fontsize=16, weight="bold")
-        ax.tick_params(axis="x", rotation=45, labelsize=14)
-        ax.tick_params(axis="y", labelsize=14)
+        ax.tick_params(axis="x", rotation=45, labelsize=20)
+        ax.tick_params(axis="y", labelsize=20)
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        ax.legend(fontsize=14)
+        ax.legend(fontsize=20)
 
     # Adjust layout and save the figure
     plt.tight_layout(pad=2.0)
@@ -1011,8 +1012,8 @@ def plot_7_days_forecast_and_validation(
         linestyle="--",
         color="red",
     )
-    axs[0, 0].set_ylabel("New Confirmed Cases", fontsize=14, weight="bold")
-    axs[0, 0].set_xlabel("Date", fontsize=14, weight="bold")
+    axs[0, 0].set_ylabel("New Confirmed Cases", fontsize=20, weight="bold")
+    axs[0, 0].set_xlabel("Date", fontsize=20, weight="bold")
 
     axs[0, 1].plot(
         val_data["date"], val_data["daily_hospitalized"], label="Observed", color="blue"
@@ -1024,8 +1025,8 @@ def plot_7_days_forecast_and_validation(
         linestyle="--",
         color="red",
     )
-    axs[0, 1].set_ylabel("New Admissions", fontsize=14, weight="bold")
-    axs[0, 1].set_xlabel("Date", fontsize=14, weight="bold")
+    axs[0, 1].set_ylabel("New Admissions", fontsize=20, weight="bold")
+    axs[0, 1].set_xlabel("Date", fontsize=20, weight="bold")
 
     axs[1, 0].plot(
         val_data["date"],
@@ -1040,8 +1041,8 @@ def plot_7_days_forecast_and_validation(
         linestyle="--",
         color="red",
     )
-    axs[1, 0].set_ylabel("Critical Cases", fontsize=14, weight="bold")
-    axs[1, 0].set_xlabel("Date", fontsize=14, weight="bold")
+    axs[1, 0].set_ylabel("Critical Cases", fontsize=20, weight="bold")
+    axs[1, 0].set_xlabel("Date", fontsize=20, weight="bold")
 
     axs[1, 1].plot(
         val_data["date"], val_data["daily_deceased"], label="Observed", color="blue"
@@ -1053,13 +1054,13 @@ def plot_7_days_forecast_and_validation(
         linestyle="--",
         color="red",
     )
-    axs[1, 1].set_ylabel("New Deaths", fontsize=14, weight="bold")
-    axs[1, 1].set_xlabel("Date", fontsize=14, weight="bold")
+    axs[1, 1].set_ylabel("New Deaths", fontsize=20, weight="bold")
+    axs[1, 1].set_xlabel("Date", fontsize=20, weight="bold")
 
     for ax in axs.flat:
-        ax.tick_params(axis="x", rotation=45, labelsize=14)
-        ax.tick_params(axis="y", labelsize=14)
-        ax.legend(fontsize=14)
+        ax.tick_params(axis="x", rotation=45, labelsize=20)
+        ax.tick_params(axis="y", labelsize=20)
+        ax.legend(fontsize=20)
 
     plt.tight_layout()
     plt.savefig("../../reports/figures/7_days_forecast_validation.pdf")

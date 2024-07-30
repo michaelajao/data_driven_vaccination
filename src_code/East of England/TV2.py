@@ -53,7 +53,7 @@ plt.style.use(['science', 'ieee', 'no-latex'])
 plt.rcParams.update({
     "font.size": 14,
     "font.weight": "bold",
-    "figure.figsize": [10, 6],
+    "figure.figsize": [10, 4],
     "text.usetex": False,
     "figure.facecolor": "white",
     "figure.autolayout": True,
@@ -483,7 +483,7 @@ def train_model(model, parameter_net, optimizer, scheduler, time_stamps, data_sc
 
 # Initialize model, optimizer, and scheduler
 model = EpiNet(num_layers=6, hidden_neurons=20, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=4, hidden_neurons=20, output_size=6).to(device)
+parameter_net = ParameterNet(num_layers=5, hidden_neurons=20, output_size=6).to(device)
 optimizer = optim.Adam(
     list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4
 )

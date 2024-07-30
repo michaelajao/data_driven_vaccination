@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
+import scienceplots
 from tqdm.notebook import tqdm
 from collections import deque
 import torch
@@ -50,7 +51,8 @@ def check_pytorch():
 check_pytorch()
 
 # Set matplotlib style and parameters
-plt.style.use("seaborn-v0_8-paper")
+# plt.style.use("seaborn-v0_8-paper")
+plt.style.use(["science", "no-latex", "ieee"])
 plt.rcParams.update({
     "font.size": 14,
     "figure.figsize": [10, 5],
@@ -195,7 +197,7 @@ def load_preprocess_data(filepath, areaname, recovery_period=16, rolling_window=
     
     return df
 
-data = load_preprocess_data("../../data/processed/merged_nhs_covid_data.csv", areaname, recovery_period=21, rolling_window=7,start_date="2020-05-01", end_date="2020-12-31")
+data = load_preprocess_data("../../data/processed/merged_nhs_covid_data.csv", areaname, recovery_period=21, rolling_window=7,start_date="2020-05-01", end_date="2021-12-31")
 
 # Plotting new deceased cases over time
 plt.plot(data["date"], data["daily_deceased"])
@@ -495,7 +497,7 @@ optimizer = optim.Adam(
 scheduler = StepLR(optimizer, step_size=5000, gamma=0.8)
 
 # Early stopping
-early_stopping = EarlyStopping(patience=100, verbose=False)
+early_stopping = EarlyStopping(patience=200, verbose=False)
 
 # Create timestamps tensor
 time_stamps = (
