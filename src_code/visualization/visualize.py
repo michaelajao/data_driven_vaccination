@@ -293,6 +293,7 @@ plt.xticks(rotation=45)
 plt.ylabel('Number of Beds')
 plt.legend()
 plt.savefig("../../reports/figures/covid_occupied_mv_beds_vs_new_admissions.pdf")
+plt.savefig("../../reports/figures/covid_occupied_mv_beds_vs_new_admissions.png")
 plt.show()
 
 
