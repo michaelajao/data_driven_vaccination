@@ -34,6 +34,7 @@ def setup_environment(seed=42):
 
 setup_environment()
 
+
 # Device setup
 def get_device():
     """Get the appropriate device (GPU if available, else CPU)."""
@@ -149,7 +150,7 @@ data = load_and_preprocess_data(
 )
 
 # Verify that dates are parsed correctly
-print(data.head())
+data.head()
 
 # Split data into training and validation sets
 features = [
@@ -199,9 +200,21 @@ class ResidualBlock(nn.Module):
             nn.Linear(hidden_neurons, hidden_neurons),
         )
         self.activation = nn.Tanh()
+        self.init_weights()
 
     def forward(self, x):
         return self.activation(x + self.block(x))
+
+    def init_weights(self):
+        def initialize_weights(m):
+            if isinstance(m, nn.Linear):
+                gain = nn.init.calculate_gain("tanh")
+                nn.init.xavier_normal_(m.weight, gain=gain)
+                if m.bias is not None:
+                    m.bias.data.fill_(0.01)  # Initialize biases to 0.01
+
+        self.apply(initialize_weights)
+
 
 class EpiNet(nn.Module):
     """Physics-Informed Neural Network for epidemiological modeling."""
@@ -210,7 +223,8 @@ class EpiNet(nn.Module):
         super().__init__()
         layers = [nn.Linear(1, hidden_neurons), nn.Tanh()]
         for _ in range(num_layers):
-            layers.append(ResidualBlock(hidden_neurons))
+            block = ResidualBlock(hidden_neurons)
+            layers.append(block)
         layers.append(nn.Linear(hidden_neurons, output_size))
         self.network = nn.Sequential(*layers)
         self.init_weights()
@@ -249,10 +263,13 @@ class EpiNet(nn.Module):
     def init_weights(self):
         def initialize_weights(m):
             if isinstance(m, nn.Linear):
-                nn.init.xavier_normal_(m.weight)
-                nn.init.zeros_(m.bias)
+                gain = nn.init.calculate_gain("tanh")
+                nn.init.xavier_normal_(m.weight, gain=gain)
+                if m.bias is not None:
+                    m.bias.data.fill_(0.01)  # Initialize biases to 0.01
 
         self.apply(initialize_weights)
+
 
 class ParameterNet(nn.Module):
     """Neural Network to predict time-varying parameters."""
@@ -280,8 +297,10 @@ class ParameterNet(nn.Module):
     def init_weights(self):
         def initialize_weights(m):
             if isinstance(m, nn.Linear):
-                nn.init.xavier_normal_(m.weight)
-                nn.init.zeros_(m.bias)
+                gain = nn.init.calculate_gain("tanh")
+                nn.init.xavier_normal_(m.weight, gain=gain)
+                if m.bias is not None:
+                    m.bias.data.fill_(0.01)  # Initialize biases to 0.01
 
         self.apply(initialize_weights)
 
@@ -417,7 +436,7 @@ def pinn_loss(model_output, data_tensor, parameters, t, constants):
 class EarlyStopping:
     """Early stopping to stop the training when the loss does not improve."""
 
-    def __init__(self, patience=200, verbose=False, delta=0):
+    def __init__(self, patience=20, verbose=False, delta=0):
         self.patience = patience
         self.verbose = verbose
         self.delta = delta
@@ -446,7 +465,7 @@ def train_model(
     scheduler,
     time_stamps,
     data_tensor,
-    num_epochs=100000,
+    num_epochs=1000,
     early_stopping=None,
 ):
     """Train the model with early stopping and learning rate scheduling."""
@@ -496,7 +515,7 @@ scheduler = ReduceLROnPlateau(
     optimizer, mode="min", factor=0.5, patience=50, verbose=True
 )
 
-early_stopping = EarlyStopping(patience=200, verbose=True)
+early_stopping = EarlyStopping(patience=100, verbose=True)
 
 # Ensure time_stamps have requires_grad=True before training
 time_stamps_normalized.requires_grad_(True)
@@ -510,7 +529,7 @@ with torch.autograd.set_detect_anomaly(True):
         scheduler,
         time_stamps_normalized,
         train_data_tensor,
-        num_epochs=100000,
+        num_epochs=50000,
         early_stopping=early_stopping,
     )
 
@@ -563,10 +582,10 @@ new_hospital_admissions_pred = ds * omega_pred * Is_pred  # New hospital admissi
 observed_data = train_data[features].reset_index(drop=True)
 predicted_data = np.stack(
     [
-        new_cases_pred.cpu().numpy(),
-        new_hospital_admissions_pred.cpu().numpy(),
-        C_pred.cpu().numpy(),
-        new_deaths_pred.cpu().numpy(),
+        new_cases_pred.cpu().detach().numpy(),
+        new_hospital_admissions_pred.cpu().detach().numpy(),
+        C_pred.cpu().detach().numpy(),
+        new_deaths_pred.cpu().detach().numpy(),
     ],
     axis=1,
 )
@@ -610,29 +629,25 @@ for var, y_true, y_pred in zip(features, train_data_values, predicted_data_inver
 
 save_metrics(metrics, "training_metrics")
 
+
 # Evaluate on validation data
 val_time_stamps = torch.tensor(val_data.index.values, dtype=torch.float32).view(-1, 1)
 val_time_stamps_normalized = (val_time_stamps - t_min) / (t_max - t_min)
 val_time_stamps_normalized = val_time_stamps_normalized.to(device)
 val_time_stamps_normalized.requires_grad_(True)
 
+# After loading the model outputs and parameters for validation data
 with torch.no_grad():
     val_model_output = model(val_time_stamps_normalized)
     val_parameters = parameter_net(val_time_stamps_normalized)
 
 # Extract model outputs
-(
-    S_pred_val,
-    E_pred_val,
-    Is_pred_val,
-    Ia_pred_val,
-    H_pred_val,
-    C_pred_val,
-    R_pred_val,
-    D_pred_val,
-) = val_model_output.T
+(S_pred_val, E_pred_val, Is_pred_val, Ia_pred_val, H_pred_val, C_pred_val, R_pred_val, D_pred_val) = val_model_output.T
 
-# Apply activations
+# Extract validation parameters
+(beta_pred_val, gamma_c_pred_val, delta_c_pred_val, eta_pred_val, mu_pred_val, omega_pred_val) = val_parameters
+
+# Apply activations to outputs (remains the same)
 S_pred_val = torch.sigmoid(S_pred_val)
 E_pred_val = torch.relu(E_pred_val)
 Is_pred_val = torch.relu(Is_pred_val)
@@ -642,19 +657,20 @@ C_pred_val = torch.relu(C_pred_val)
 R_pred_val = torch.relu(R_pred_val)
 D_pred_val = torch.relu(D_pred_val)
 
-# Compute predicted incidence
-new_cases_pred_val = alpha * rho * E_pred_val  # Use same constants as before
-new_deaths_pred_val = mu_pred * H_pred_val + delta_c_pred * C_pred_val
-new_hospital_admissions_pred_val = ds * omega_pred * Is_pred_val
+# Compute predicted incidence using validation parameters
+new_cases_pred_val = alpha * rho * E_pred_val  # Constants can be used directly
+new_deaths_pred_val = mu_pred_val * H_pred_val + delta_c_pred_val * C_pred_val
+new_hospital_admissions_pred_val = ds * omega_pred_val * Is_pred_val
+
 
 # Prepare observed and predicted data for plotting
 observed_val_data = val_data[features].reset_index(drop=True)
 predicted_val_data = np.stack(
     [
-        new_cases_pred_val.cpu().numpy(),
-        new_hospital_admissions_pred_val.cpu().numpy(),
-        C_pred_val.cpu().numpy(),
-        new_deaths_pred_val.cpu().numpy(),
+        new_cases_pred_val.cpu().detach().numpy(),
+        new_hospital_admissions_pred_val.cpu().detach().numpy(),
+        C_pred_val.cpu().detach().numpy(),
+        new_deaths_pred_val.cpu().detach().numpy(),
     ],
     axis=1,
 )
@@ -705,105 +721,3 @@ plot_parameters(dates, parameters_np, "time_varying_parameters")
 # Plot parameters for validation data
 parameters_val_np = [p.cpu().detach() for p in val_parameters]
 plot_parameters(dates_val, parameters_val_np, "time_varying_parameters_validation")
-
-# Additional Plot: Evolution of Constants Over Epochs
-def plot_constants_over_epochs(constants_history, filename):
-    """Plot the evolution of constants over training epochs."""
-    params = ["rho", "alpha", "ds", "da", "dH"]
-    epochs = np.arange(len(constants_history["rho"]))
-    fig, axs = plt.subplots(nrows=3, ncols=2, figsize=(15, 12))
-    axs = axs.flatten()
-
-    for idx, param in enumerate(params):
-        axs[idx].plot(epochs, constants_history[param], label=param, color=f"C{idx}")
-        axs[idx].set_title(f"{param} over Epochs")
-        axs[idx].set_xlabel("Epoch")
-        axs[idx].set_ylabel(param)
-        axs[idx].legend()
-
-    plt.tight_layout()
-    plt.savefig(f"../../reports/figures/{filename}.png")
-    plt.show()
-
-# Collect constants over epochs during training
-def train_model_with_constants_history(
-    model,
-    parameter_net,
-    optimizer,
-    scheduler,
-    time_stamps,
-    data_tensor,
-    num_epochs=100000,
-    early_stopping=None,
-):
-    """Train the model with early stopping and learning rate scheduling, tracking constants."""
-    train_losses = []
-    constants_history = {"rho": [], "alpha": [], "ds": [], "da": [], "dH": []}
-
-    progress_bar = trange(num_epochs, desc="Training", unit="epoch")
-    for epoch in progress_bar:
-        model.train()
-        parameter_net.train()
-        optimizer.zero_grad()
-
-        # Forward pass
-        model_output = model(time_stamps)
-        parameters = parameter_net(time_stamps)
-        constants = (model.rho, model.alpha, model.ds, model.da, model.dH)
-
-        # Record constants
-        constants_history["rho"].append(model.rho.item())
-        constants_history["alpha"].append(model.alpha.item())
-        constants_history["ds"].append(model.ds.item())
-        constants_history["da"].append(model.da.item())
-        constants_history["dH"].append(model.dH.item())
-
-        # Compute loss
-        loss = pinn_loss(model_output, data_tensor, parameters, time_stamps, constants)
-
-        # Backward pass and optimization
-        loss.backward()
-        optimizer.step()
-
-        train_loss = loss.item()
-        train_losses.append(train_loss)
-        scheduler.step(train_loss)
-
-        # Update progress bar
-        progress_bar.set_postfix(loss=train_loss)
-
-        if early_stopping:
-            early_stopping(train_loss)
-            if early_stopping.early_stop:
-                progress_bar.write("Early stopping triggered.")
-                break
-
-    return train_losses, constants_history
-
-# Retrain the model to collect constants history
-model = EpiNet(num_layers=5, hidden_neurons=20, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=3, hidden_neurons=32, output_size=6).to(device)
-
-optimizer = optim.Adam(
-    list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4
-)
-scheduler = ReduceLROnPlateau(
-    optimizer, mode="min", factor=0.5, patience=50, verbose=True
-)
-
-early_stopping = EarlyStopping(patience=200, verbose=True)
-
-with torch.autograd.set_detect_anomaly(True):
-    train_losses, constants_history = train_model_with_constants_history(
-        model,
-        parameter_net,
-        optimizer,
-        scheduler,
-        time_stamps_normalized,
-        train_data_tensor,
-        num_epochs=100000,
-        early_stopping=early_stopping,
-    )
-
-# Plot constants over epochs
-plot_constants_over_epochs(constants_history, "constants_over_epochs")
