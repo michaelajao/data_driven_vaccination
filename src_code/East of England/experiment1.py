@@ -486,16 +486,8 @@ def einn_loss(model_output, tensor_data, parameters, t, constants):
         + torch.mean((D_pred[0] - D0) ** 2)
     )
 
-    # Assign weights
-    data_weight = 1.0
-    residual_weight = 0.1
-    initial_weight = 0.5
-
-    loss = (
-        (data_weight * data_loss)
-        + (residual_weight * residual_loss)
-        + (initial_weight * initial_cost)
-    )
+    # Total loss
+    loss = data_loss + residual_loss + initial_cost
     return loss
 
 
