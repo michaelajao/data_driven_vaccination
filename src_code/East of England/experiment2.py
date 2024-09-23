@@ -318,11 +318,11 @@ class EpiNet(nn.Module):
         # In EpiNet class
         self._rho = nn.Parameter(torch.tensor([0.8], device=device), requires_grad=True)
         self._alpha = nn.Parameter(
-            torch.tensor([0.2], device=device), requires_grad=True
+            torch.tensor([1/5], device=device), requires_grad=True
         )
-        self._ds = nn.Parameter(torch.tensor([0.1], device=device), requires_grad=True)
-        self._da = nn.Parameter(torch.tensor([0.1], device=device), requires_grad=True)
-        self._dH = nn.Parameter(torch.tensor([0.05], device=device), requires_grad=True)
+        self._ds = nn.Parameter(torch.tensor([1/4], device=device), requires_grad=True)
+        self._da = nn.Parameter(torch.tensor([1/7], device=device), requires_grad=True)
+        self._dH = nn.Parameter(torch.tensor([1/13.4], device=device), requires_grad=True)
 
         # Initialize weights using Xavier initialization
         self.init_xavier()
@@ -332,23 +332,23 @@ class EpiNet(nn.Module):
 
     @property
     def rho(self):
-        return 0.1 + 0.9 * torch.sigmoid(self._rho)  # Range [0.1, 1.0]
+        return torch.sigmoid(self._rho)  # Range [0.1, 1.0]
 
     @property
     def alpha(self):
-        return 0.1 + 0.9 * torch.sigmoid(self._alpha)  # Range [0.1, 1.0]
+        return torch.sigmoid(self._alpha)  # Range [0.1, 1.0]
 
     @property
     def ds(self):
-        return 0.1 + 0.9 * torch.sigmoid(self._ds)  # Range [0.1, 1.0]
+        return torch.sigmoid(self._ds)  # Range [0.1, 1.0]
 
     @property
     def da(self):
-        return 0.1 + 0.9 * torch.sigmoid(self._da)  # Range [0.1, 1.0]
+        return torch.sigmoid(self._da)  # Range [0.1, 1.0]
 
     @property
     def dH(self):
-        return 0.1 + 0.9 * torch.sigmoid(self._dH)  # Range [0.1, 1.0]
+        return torch.sigmoid(self._dH)  # Range [0.1, 1.0]
 
     def get_constants(self):
         """Retrieve the constants for the model."""
@@ -386,12 +386,12 @@ class ParameterNet(nn.Module):
         raw_parameters = self.net(t)
 
         # Apply sigmoid and scale to specific ranges
-        beta = 0.1 + 0.9 * torch.sigmoid(raw_parameters[:, 0])  # Range [0.1, 1.0]
-        gamma_c = 0.0 + 0.5 * torch.sigmoid(raw_parameters[:, 1])  # Range [0.0, 0.5]
-        delta_c = 0.0 + 0.5 * torch.sigmoid(raw_parameters[:, 2])  # Range [0.0, 0.5]
-        eta = 0.0 + 0.2 * torch.sigmoid(raw_parameters[:, 3])  # Range [0.0, 0.2]
-        mu = 0.0 + 0.1 * torch.sigmoid(raw_parameters[:, 4])  # Range [0.0, 0.1]
-        omega = 0.0 + 0.5 * torch.sigmoid(raw_parameters[:, 5])  # Range [0.0, 0.5]
+        beta = torch.sigmoid(raw_parameters[:, 0])  # Range [0.1, 1.0]
+        gamma_c = torch.sigmoid(raw_parameters[:, 1])  # Range [0.0, 0.5]
+        delta_c = torch.sigmoid(raw_parameters[:, 2])  # Range [0.0, 0.5]
+        eta = torch.sigmoid(raw_parameters[:, 3])  # Range [0.0, 0.2]
+        mu = torch.sigmoid(raw_parameters[:, 4])  # Range [0.0, 0.1]
+        omega = torch.sigmoid(raw_parameters[:, 5])  # Range [0.0, 0.5]
 
         return beta, gamma_c, delta_c, eta, mu, omega
 
@@ -485,17 +485,10 @@ def einn_loss(model_output, tensor_data, parameters, t, constants):
         + torch.mean((C_pred[0] - C0) ** 2)
         + torch.mean((D_pred[0] - D0) ** 2)
     )
-
-    # Assign weights
-    data_weight = 1.0
-    residual_weight = 0.1
-    initial_weight = 0.5
-
-    loss = (
-        (data_weight * data_loss)
-        + (residual_weight * residual_loss)
-        + (initial_weight * initial_cost)
-    )
+    
+    # Total loss
+    loss = data_loss + residual_loss + initial_cost
+    
     return loss
 
 
@@ -579,8 +572,8 @@ def train_model(
 
 
 # Initialize model, optimizer, and scheduler
-model = EpiNet(num_layers=5, hidden_neurons=20, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=1, hidden_neurons=20, output_size=6).to(device)
+model = EpiNet(num_layers=6, hidden_neurons=20, output_size=8).to(device)
+parameter_net = ParameterNet(num_layers=5, hidden_neurons=20, output_size=6).to(device)
 optimizer = optim.Adam(
     list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4
 )

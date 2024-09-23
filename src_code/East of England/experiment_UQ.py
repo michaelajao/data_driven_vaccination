@@ -35,6 +35,7 @@ if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = False
 np.random.seed(seed)
 
+
 def check_pytorch():
     """Check PyTorch and CUDA setup."""
     print(f"PyTorch version: {torch.__version__}")
@@ -49,17 +50,24 @@ def check_pytorch():
     else:
         print("CUDA not available. PyTorch will run on CPU.")
 
+
 check_pytorch()
 
 # Set matplotlib style and parameters
 plt.style.use(["science", "ieee", "no-latex"])
-plt.rcParams.update({
-    # ... (same as your previous style settings)
-})
+plt.rcParams.update(
+    {
+        # ... (same as your previous style settings)
+    }
+)
+
 
 def normalized_root_mean_square_error(y_true, y_pred):
     """Calculate the Normalized Root Mean Square Error (NRMSE)."""
-    return np.sqrt(mean_squared_error(y_true, y_pred)) / (np.max(y_true) - np.min(y_true))
+    return np.sqrt(mean_squared_error(y_true, y_pred)) / (
+        np.max(y_true) - np.min(y_true)
+    )
+
 
 def safe_mean_absolute_scaled_error(y_true, y_pred, y_train, epsilon=1e-10):
     """Calculate the Mean Absolute Scaled Error (MASE) safely."""
@@ -68,6 +76,7 @@ def safe_mean_absolute_scaled_error(y_true, y_pred, y_train, epsilon=1e-10):
     d = max(d, epsilon)
     errors = np.abs(y_true - y_pred)
     return errors.mean() / d
+
 
 def calculate_errors(y_true, y_pred, y_train, train_size, area_name):
     """Calculate and print various error metrics."""
@@ -84,16 +93,22 @@ def calculate_errors(y_true, y_pred, y_train, train_size, area_name):
     print(f"Root Mean Square Error (RMSE): {rmse:.4f}")
     print(f"Mean Absolute Error (MAE): {mae:.4f}")
     print(f"Mean Squared Error (MSE): {mse:.4f}")
-    
+
     return mape, nrmse, mase, rmse, mae, mse
+
 
 def calculate_all_metrics(y_true, y_pred, y_train, label, train_size, area_name):
     """Calculate metrics for each variable."""
     print(f"\nMetrics for {label}:")
-    mape, nrmse, mase, rmse, mae, mse = calculate_errors(y_true, y_pred, y_train, train_size, area_name)
+    mape, nrmse, mase, rmse, mae, mse = calculate_errors(
+        y_true, y_pred, y_train, train_size, area_name
+    )
     return mape, nrmse, mase, rmse, mae, mse
 
-def seird_model(y, t, N, beta, alpha, rho, ds, da, omega, dH, mu, gamma_c, delta_c, eta):
+
+def seird_model(
+    y, t, N, beta, alpha, rho, ds, da, omega, dH, mu, gamma_c, delta_c, eta
+):
     """Define the SEIRD model differential equations."""
     S, E, Is, Ia, H, C, R, D = y
 
@@ -108,18 +123,27 @@ def seird_model(y, t, N, beta, alpha, rho, ds, da, omega, dH, mu, gamma_c, delta
 
     return [dSdt, dEdt, dIsdt, dIadt, dHdt, dCdt, dRdt, dDdt]
 
+
 area_name = "East of England"
 
-def load_preprocess_data(filepath, area_name, recovery_period=16, rolling_window=7, start_date="2020-04-01", end_date=None):
+
+def load_preprocess_data(
+    filepath,
+    area_name,
+    recovery_period=16,
+    rolling_window=7,
+    start_date="2020-04-01",
+    end_date=None,
+):
     """Load and preprocess the COVID-19 data."""
     df = pd.read_csv(filepath)
-    
+
     # Select the columns of interest
     df = df[df["areaName"] == area_name].reset_index(drop=True)
-    
+
     # Convert the date column to datetime
     df["date"] = pd.to_datetime(df["date"])
-    
+
     # Compute daily new values from cumulative values
     df["daily_confirmed"] = df["cumulative_confirmed"].diff().fillna(0)
     df["daily_deceased"] = df["cumulative_deceased"].diff().fillna(0)
@@ -151,15 +175,21 @@ def load_preprocess_data(filepath, area_name, recovery_period=16, rolling_window
 
     # Apply 7-day rolling average to smooth out data
     for col in required_columns[2:]:
-        df[col] = df[col].rolling(window=rolling_window, min_periods=1, center=False).mean().fillna(0)
+        df[col] = (
+            df[col]
+            .rolling(window=rolling_window, min_periods=1, center=False)
+            .mean()
+            .fillna(0)
+        )
 
     # Select data from start date to end date
-    mask = (df["date"] >= start_date)
+    mask = df["date"] >= start_date
     if end_date:
-        mask &= (df["date"] <= end_date)
+        mask &= df["date"] <= end_date
     df = df.loc[mask].reset_index(drop=True)
-    
+
     return df
+
 
 # Load and preprocess data
 data = load_preprocess_data(
@@ -184,6 +214,7 @@ plt.show()
 train_data = data[:-7].reset_index(drop=True)
 val_data = data[-7:].reset_index(drop=True)
 
+
 def scale_data(train_data, val_data, features, device):
     """Scale training and validation data using the same scaler."""
     scaler = MinMaxScaler()
@@ -199,6 +230,7 @@ def scale_data(train_data, val_data, features, device):
 
     return train_data_scaled, val_data_scaled, scaler
 
+
 features = [
     "daily_confirmed",
     "daily_hospitalized",
@@ -207,7 +239,10 @@ features = [
 ]
 
 # Split and scale the data
-train_data_scaled, val_data_scaled, scaler = scale_data(train_data, val_data, features, device)
+train_data_scaled, val_data_scaled, scaler = scale_data(
+    train_data, val_data, features, device
+)
+
 
 # Define the ResidualBlock with Dropout for UQ
 class ResidualBlock(nn.Module):
@@ -224,28 +259,33 @@ class ResidualBlock(nn.Module):
     def forward(self, x):
         return self.activation(x + self.layer(x))
 
+
 # Define the EpiNet model with Dropout for UQ
 class EpiNet(nn.Module):
-    def __init__(self, num_layers=3, hidden_neurons=10, output_size=8, dropout_rate=0.1):
+    def __init__(
+        self, num_layers=3, hidden_neurons=10, output_size=8, dropout_rate=0.1
+    ):
         super(EpiNet, self).__init__()
         self.retain_seed = 100
         torch.manual_seed(self.retain_seed)
 
         # Input layer
         layers = [nn.Linear(1, hidden_neurons), nn.Tanh()]
-        
+
         # Hidden layers with residual connections
         for _ in range(num_layers):
             layers.append(nn.Dropout(p=dropout_rate))
             layers.append(ResidualBlock(hidden_neurons, dropout_rate))
-        
+
         # Output layer
         layers.append(nn.Linear(hidden_neurons, output_size))
         self.net = nn.Sequential(*layers)
-        
+
         # Initialize parameters with constraints
         self._rho = nn.Parameter(torch.tensor([0.8], device=device), requires_grad=True)
-        self._alpha = nn.Parameter(torch.tensor([0.2], device=device), requires_grad=True)
+        self._alpha = nn.Parameter(
+            torch.tensor([0.2], device=device), requires_grad=True
+        )
         self._ds = nn.Parameter(torch.tensor([0.1], device=device), requires_grad=True)
         self._da = nn.Parameter(torch.tensor([0.1], device=device), requires_grad=True)
         self._dH = nn.Parameter(torch.tensor([0.05], device=device), requires_grad=True)
@@ -255,23 +295,23 @@ class EpiNet(nn.Module):
 
     def forward(self, t):
         return torch.sigmoid(self.net(t))
-    
+
     @property
     def rho(self):
         return 0.1 + 0.9 * torch.sigmoid(self._rho)  # Range [0.1, 1.0]
-    
+
     @property
     def alpha(self):
         return 0.1 + 0.9 * torch.sigmoid(self._alpha)  # Range [0.1, 1.0]
-    
+
     @property
     def ds(self):
         return 0.1 + 0.9 * torch.sigmoid(self._ds)  # Range [0.1, 1.0]
-    
+
     @property
     def da(self):
         return 0.1 + 0.9 * torch.sigmoid(self._da)  # Range [0.1, 1.0]
-    
+
     @property
     def dH(self):
         return 0.1 + 0.9 * torch.sigmoid(self._dH)  # Range [0.1, 1.0]
@@ -291,9 +331,12 @@ class EpiNet(nn.Module):
         # Apply the weight initialization to the network
         self.net.apply(init_weights)
 
+
 # Define the ParameterNet
 class ParameterNet(nn.Module):
-    def __init__(self, num_layers=2, hidden_neurons=10, output_size=6, dropout_rate=0.1):
+    def __init__(
+        self, num_layers=2, hidden_neurons=10, output_size=6, dropout_rate=0.1
+    ):
         super(ParameterNet, self).__init__()
         self.retain_seed = 100
         torch.manual_seed(self.retain_seed)
@@ -301,11 +344,13 @@ class ParameterNet(nn.Module):
         layers = [nn.Linear(1, hidden_neurons), nn.Tanh()]
 
         for _ in range(num_layers - 1):
-            layers.extend([
-                nn.Dropout(p=dropout_rate),
-                nn.Linear(hidden_neurons, hidden_neurons),
-                nn.Tanh()
-            ])
+            layers.extend(
+                [
+                    nn.Dropout(p=dropout_rate),
+                    nn.Linear(hidden_neurons, hidden_neurons),
+                    nn.Tanh(),
+                ]
+            )
 
         layers.append(nn.Linear(hidden_neurons, output_size))
         self.net = nn.Sequential(*layers)
@@ -316,12 +361,12 @@ class ParameterNet(nn.Module):
         raw_parameters = self.net(t)
 
         # Apply sigmoid and scale to specific ranges
-        beta = 0.1 + 0.9 * torch.sigmoid(raw_parameters[:, 0])    # Range [0.1, 1.0]
-        gamma_c = 0.0 + 0.5 * torch.sigmoid(raw_parameters[:, 1]) # Range [0.0, 0.5]
-        delta_c = 0.0 + 0.5 * torch.sigmoid(raw_parameters[:, 2]) # Range [0.0, 0.5]
-        eta = 0.0 + 0.2 * torch.sigmoid(raw_parameters[:, 3])     # Range [0.0, 0.2]
-        mu = 0.0 + 0.1 * torch.sigmoid(raw_parameters[:, 4])      # Range [0.0, 0.1]
-        omega = 0.0 + 0.5 * torch.sigmoid(raw_parameters[:, 5])   # Range [0.0, 0.5]
+        beta = 0.1 + 0.9 * torch.sigmoid(raw_parameters[:, 0])  # Range [0.1, 1.0]
+        gamma_c = 0.0 + 0.5 * torch.sigmoid(raw_parameters[:, 1])  # Range [0.0, 0.5]
+        delta_c = 0.0 + 0.5 * torch.sigmoid(raw_parameters[:, 2])  # Range [0.0, 0.5]
+        eta = 0.0 + 0.2 * torch.sigmoid(raw_parameters[:, 3])  # Range [0.0, 0.2]
+        mu = 0.0 + 0.1 * torch.sigmoid(raw_parameters[:, 4])  # Range [0.0, 0.1]
+        omega = 0.0 + 0.5 * torch.sigmoid(raw_parameters[:, 5])  # Range [0.0, 0.5]
 
         return beta, gamma_c, delta_c, eta, mu, omega
 
@@ -336,6 +381,7 @@ class ParameterNet(nn.Module):
         # Apply the weight initialization to the network
         self.net.apply(init_weights)
 
+
 def einn_loss(model_output, tensor_data, parameters, t, constants):
     """Calculate the EpiNet loss."""
     S_pred, E_pred, Is_pred, Ia_pred, H_pred, C_pred, R_pred, D_pred = (
@@ -349,7 +395,12 @@ def einn_loss(model_output, tensor_data, parameters, t, constants):
         model_output[:, 7],
     )
 
-    Is_data, H_data, C_data, D_data = tensor_data[:, 0], tensor_data[:, 1], tensor_data[:, 2], tensor_data[:, 3]
+    Is_data, H_data, C_data, D_data = (
+        tensor_data[:, 0],
+        tensor_data[:, 1],
+        tensor_data[:, 2],
+        tensor_data[:, 3],
+    )
 
     N = 1  # Since data is normalized
 
@@ -409,10 +460,11 @@ def einn_loss(model_output, tensor_data, parameters, t, constants):
         + torch.mean((C_pred[0] - C0) ** 2)
         + torch.mean((D_pred[0] - D0) ** 2)
     )
-    
+
     # total loss
     loss = data_loss + residual_loss + initial_cost
     return loss
+
 
 class EarlyStopping:
     def __init__(self, patience=50, verbose=False, delta=0):
@@ -438,7 +490,17 @@ class EarlyStopping:
             self.best_score = score
             self.counter = 0
 
-def train_model(model, parameter_net, optimizer, scheduler, time_stamps, data_scaled, num_epochs=5000, early_stopping=None):
+
+def train_model(
+    model,
+    parameter_net,
+    optimizer,
+    scheduler,
+    time_stamps,
+    data_scaled,
+    num_epochs=5000,
+    early_stopping=None,
+):
     """Train the EpiNet model."""
     train_losses = []
 
@@ -482,13 +544,18 @@ def train_model(model, parameter_net, optimizer, scheduler, time_stamps, data_sc
 
     return train_losses
 
+
 # Initialize model, optimizer, and scheduler
-model = EpiNet(num_layers=6, hidden_neurons=10, output_size=8, dropout_rate=0.1).to(device)
-parameter_net = ParameterNet(num_layers=5, hidden_neurons=10, output_size=6, dropout_rate=0.1).to(device)
+model = EpiNet(num_layers=6, hidden_neurons=10, output_size=8, dropout_rate=0.1).to(
+    device
+)
+parameter_net = ParameterNet(
+    num_layers=5, hidden_neurons=10, output_size=6, dropout_rate=0.1
+).to(device)
 optimizer = optim.Adam(
     list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4
 )
-scheduler = ReduceLROnPlateau(optimizer, 'min', patience=100, factor=0.5, verbose=True)
+scheduler = ReduceLROnPlateau(optimizer, "min", patience=100, factor=0.5, verbose=True)
 
 # Early stopping
 early_stopping = EarlyStopping(patience=50, verbose=True)
@@ -522,6 +589,7 @@ plt.title("Training Loss History")
 plt.legend()
 plt.show()
 
+
 # Function to perform predictions with uncertainty using Monte Carlo Dropout
 def predict_with_uncertainty(model, parameter_net, t, n_samples=100):
     model.train()  # Keep dropout layers active
@@ -537,6 +605,7 @@ def predict_with_uncertainty(model, parameter_net, t, n_samples=100):
     predictions = np.array(predictions)  # Shape: (n_samples, batch_size, output_size)
     return predictions
 
+
 # Test the model on the full data set with uncertainty quantification
 n_samples = 100  # Number of Monte Carlo samples
 time_stamps_full = (
@@ -547,7 +616,9 @@ time_stamps_full = (
 )
 
 # Obtain predictions with uncertainty
-predictions = predict_with_uncertainty(model, parameter_net, time_stamps_full, n_samples)
+predictions = predict_with_uncertainty(
+    model, parameter_net, time_stamps_full, n_samples
+)
 
 # Calculate mean and standard deviation
 mean_predictions = predictions.mean(axis=0)
@@ -568,7 +639,12 @@ observed_model_output = pd.DataFrame(
 observed_model_output_scaled = scaler.inverse_transform(observed_model_output)
 observed_model_output_scaled = pd.DataFrame(
     observed_model_output_scaled,
-    columns=["daily_confirmed", "daily_hospitalized", "covidOccupiedMVBeds", "daily_deceased"],
+    columns=[
+        "daily_confirmed",
+        "daily_hospitalized",
+        "covidOccupiedMVBeds",
+        "daily_deceased",
+    ],
     index=data.index,
 )
 
@@ -595,25 +671,52 @@ unobserved_model_output = pd.DataFrame(
 )
 
 # Plot Observed Data vs Predicted Data with Uncertainty
-variables = ["daily_confirmed", "daily_hospitalized", "covidOccupiedMVBeds", "daily_deceased"]
+variables = [
+    "daily_confirmed",
+    "daily_hospitalized",
+    "covidOccupiedMVBeds",
+    "daily_deceased",
+]
 variable_labels = [r"$I_s$", r"$H$", r"$C$", r"$D$"]
-std_variables = ["daily_confirmed_std", "daily_hospitalized_std", "covidOccupiedMVBeds_std", "daily_deceased_std"]
+std_variables = [
+    "daily_confirmed_std",
+    "daily_hospitalized_std",
+    "covidOccupiedMVBeds_std",
+    "daily_deceased_std",
+]
 
 fig, axs = plt.subplots(4, 1, figsize=(12, 16), sharex=True)
 
-for i, (var, label, std_var) in enumerate(zip(variables, variable_labels, std_variables)):
+for i, (var, label, std_var) in enumerate(
+    zip(variables, variable_labels, std_variables)
+):
     ax = axs[i]
     ax.plot(data["date"], data[var], label="Observed", color="blue")
-    ax.plot(data["date"], observed_model_output_scaled[var], label="Predicted", color="red", linestyle="--")
+    ax.plot(
+        data["date"],
+        observed_model_output_scaled[var],
+        label="Predicted",
+        color="red",
+        linestyle="--",
+    )
     # Plot uncertainty intervals
     lower_bound = observed_model_output_scaled[var] - 2 * observed_std[std_var]
     upper_bound = observed_model_output_scaled[var] + 2 * observed_std[std_var]
-    ax.fill_between(data["date"], lower_bound, upper_bound, color='red', alpha=0.3, label="Confidence Interval (±2σ)")
+    ax.fill_between(
+        data["date"],
+        lower_bound,
+        upper_bound,
+        color="red",
+        alpha=0.3,
+        label="Confidence Interval (±2σ)",
+    )
     ax.set_ylabel(label)
     ax.legend()
-    ax.tick_params(axis='x', rotation=45)
+    ax.tick_params(axis="x", rotation=45)
 
-fig.suptitle("Observed vs Predicted Data with Uncertainty", fontsize=14, fontweight="bold")
+fig.suptitle(
+    "Observed vs Predicted Data with Uncertainty", fontsize=14, fontweight="bold"
+)
 plt.xlabel("Date")
 plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 plt.show()
@@ -621,11 +724,18 @@ plt.show()
 # Unobserved Data Visualization in 4x1 layout
 fig, axs = plt.subplots(4, 1, figsize=(12, 16), sharex=True)
 
+
 def plot_unobserved_data(ax, unobserved_model_output, variable, ylabel):
-    ax.plot(data["date"], unobserved_model_output[variable], label="Predicted", color="green")
+    ax.plot(
+        data["date"],
+        unobserved_model_output[variable],
+        label="Predicted",
+        color="green",
+    )
     ax.set_ylabel(ylabel)
     ax.legend()
-    ax.tick_params(axis='x', rotation=45)
+    ax.tick_params(axis="x", rotation=45)
+
 
 plot_unobserved_data(axs[0], unobserved_model_output, "S", r"$S$")
 plot_unobserved_data(axs[1], unobserved_model_output, "E", r"$E$")
@@ -689,5 +799,5 @@ for col in features:
         observed_model_output_scaled.loc[val_data.index, col].values,
         train_data[col].values,
         train_size=len(train_data),
-        area_name=area_name
+        area_name=area_name,
     )
