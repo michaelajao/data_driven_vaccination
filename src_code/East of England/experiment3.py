@@ -1,3 +1,4 @@
+# Import necessary libraries
 import os
 import numpy as np
 import pandas as pd
@@ -157,7 +158,8 @@ def seird_model(
     dIsdt = alpha * rho * E - ds * Is
     dIadt = alpha * (1 - rho) * E - da * Ia
     dHdt = ds * omega * Is - dH * H - mu * H
-    dCdt = dH * (1 - omega) * (H - gamma_c * C) - delta_c * C
+    # Correction in dCdt equation
+    dCdt = dH * (1 - omega) * H - gamma_c * C - delta_c * C
     dRdt = ds * (1 - omega) * Is + da * Ia + dH * (1 - mu) * H + gamma_c * C - eta * R
     dDdt = mu * H + delta_c * C
 
@@ -170,7 +172,6 @@ area_name = "East of England"
 def load_preprocess_data(
     filepath,
     area_name,
-    recovery_period=16,
     rolling_window=7,
     start_date="2020-04-01",
     end_date=None,
@@ -213,7 +214,7 @@ def load_preprocess_data(
     # Select required columns
     df = df[required_columns]
 
-    # Apply 7-day rolling average to smooth out data (except for date and population)
+    # Apply rolling average to smooth out data (except for date and population)
     for col in required_columns[2:]:
         df[col] = (
             df[col]
@@ -234,13 +235,13 @@ def load_preprocess_data(
 data = load_preprocess_data(
     "../../data/processed/merged_nhs_covid_data.csv",
     area_name,
-    recovery_period=21,
     rolling_window=7,
     start_date="2020-05-01",
     end_date="2021-12-31",
 )
 
 # Plotting new deceased cases over time
+plt.figure(figsize=(10, 4))
 plt.plot(data["date"], data["daily_deceased"])
 plt.title("New Daily Deceased over time")
 plt.xlabel("Date")
@@ -300,7 +301,7 @@ class ResidualBlock(nn.Module):
 class EpiNet(nn.Module):
     def __init__(self, num_layers=3, hidden_neurons=10, output_size=8):
         super(EpiNet, self).__init__()
-        self.retain_seed = 100
+        self.retain_seed = seed
         torch.manual_seed(self.retain_seed)
 
         # Input layer
@@ -315,21 +316,23 @@ class EpiNet(nn.Module):
         self.net = nn.Sequential(*layers)
 
         # Initialize parameters with constraints
-        # In EpiNet class
-        self._rho = nn.Parameter(torch.tensor([0.8], device=device), requires_grad=False)  # Proportion of symptomatic infections, fixed at 0.80
+        self._rho = nn.Parameter(
+            torch.tensor([0.8], device=device, dtype=torch.float32), requires_grad=True
+        )
         self._alpha = nn.Parameter(
-            torch.tensor([1/5], device=device), requires_grad=False  # Incubation period set to 5 days, so alpha = 1/5
+            torch.tensor([1 / 5], device=device, dtype=torch.float32),
+            requires_grad=True,
         )
         self._ds = nn.Parameter(
-            torch.tensor([1/4], device=device), requires_grad=False  # Infectious period for symptomatic cases, ds = 1/4
+            torch.tensor([1 / 4], device=device, dtype=torch.float32), requires_grad=True
         )
         self._da = nn.Parameter(
-            torch.tensor([1/7], device=device), requires_grad=False  # Infectious period for asymptomatic cases, da = 1/7
+            torch.tensor([1 / 7], device=device, dtype=torch.float32), requires_grad=True
         )
         self._dH = nn.Parameter(
-            torch.tensor([1/13.4], device=device), requires_grad=False  # Hospitalization duration set to 13.4 days, so dH = 1/13.4
+            torch.tensor([1 / 13.4], device=device, dtype=torch.float32),
+            requires_grad=True,
         )
-
 
         # Initialize weights using Xavier initialization
         self.init_xavier()
@@ -339,23 +342,23 @@ class EpiNet(nn.Module):
 
     @property
     def rho(self):
-        return torch.sigmoid(self._rho)  # Range [0.1, 1.0]
+        return torch.sigmoid(self._rho)  # Range [0, 1]
 
     @property
     def alpha(self):
-        return torch.sigmoid(self._alpha)  # Range [0.1, 1.0]
+        return torch.sigmoid(self._alpha)  # Range [0, 1]
 
     @property
     def ds(self):
-        return torch.sigmoid(self._ds)  # Range [0.1, 1.0]
+        return torch.sigmoid(self._ds)  # Range [0, 1]
 
     @property
     def da(self):
-        return torch.sigmoid(self._da)  # Range [0.1, 1.0]
+        return torch.sigmoid(self._da)  # Range [0, 1]
 
     @property
     def dH(self):
-        return torch.sigmoid(self._dH)  # Range [0.1, 1.0]
+        return torch.sigmoid(self._dH)  # Range [0, 1]
 
     def get_constants(self):
         """Retrieve the constants for the model."""
@@ -376,7 +379,7 @@ class EpiNet(nn.Module):
 class ParameterNet(nn.Module):
     def __init__(self, num_layers=2, hidden_neurons=10, output_size=6):
         super(ParameterNet, self).__init__()
-        self.retain_seed = 100
+        self.retain_seed = seed
         torch.manual_seed(self.retain_seed)
 
         layers = [nn.Linear(1, hidden_neurons), nn.Tanh()]
@@ -393,12 +396,12 @@ class ParameterNet(nn.Module):
         raw_parameters = self.net(t)
 
         # Apply sigmoid and scale to specific ranges
-        beta = torch.sigmoid(raw_parameters[:, 0])  # Range [0.1, 1.0]
-        gamma_c = torch.sigmoid(raw_parameters[:, 1])  # Range [0.0, 0.5]
-        delta_c = torch.sigmoid(raw_parameters[:, 2])  # Range [0.0, 0.5]
-        eta = torch.sigmoid(raw_parameters[:, 3])  # Range [0.0, 0.2]
-        mu = torch.sigmoid(raw_parameters[:, 4])  # Range [0.0, 0.1]
-        omega = torch.sigmoid(raw_parameters[:, 5])  # Range [0.0, 0.5]
+        beta = 0.1 + 0.9 * torch.sigmoid(raw_parameters[:, 0])  # Range [0.1, 1.0]
+        gamma_c = 0.0 + 0.5 * torch.sigmoid(raw_parameters[:, 1])  # Range [0.0, 0.5]
+        delta_c = 0.0 + 0.5 * torch.sigmoid(raw_parameters[:, 2])  # Range [0.0, 0.5]
+        eta = 0.0 + 0.2 * torch.sigmoid(raw_parameters[:, 3])  # Range [0.0, 0.2]
+        mu = 0.0 + 0.1 * torch.sigmoid(raw_parameters[:, 4])  # Range [0.0, 0.1]
+        omega = 0.0 + 0.5 * torch.sigmoid(raw_parameters[:, 5])  # Range [0.0, 0.5]
 
         return beta, gamma_c, delta_c, eta, mu, omega
 
@@ -440,18 +443,34 @@ def einn_loss(model_output, tensor_data, parameters, t, constants):
 
     beta_pred, gamma_c_pred, delta_c_pred, eta_pred, mu_pred, omega_pred = parameters
 
-    S_t = grad(S_pred, t, grad_outputs=torch.ones_like(S_pred), create_graph=True)[0]
-    E_t = grad(E_pred, t, grad_outputs=torch.ones_like(E_pred), create_graph=True)[0]
-    Ia_t = grad(Ia_pred, t, grad_outputs=torch.ones_like(Ia_pred), create_graph=True)[0]
-    Is_t = grad(Is_pred, t, grad_outputs=torch.ones_like(Is_pred), create_graph=True)[0]
-    H_t = grad(H_pred, t, grad_outputs=torch.ones_like(H_pred), create_graph=True)[0]
-    C_t = grad(C_pred, t, grad_outputs=torch.ones_like(C_pred), create_graph=True)[0]
-    R_t = grad(R_pred, t, grad_outputs=torch.ones_like(R_pred), create_graph=True)[0]
-    D_t = grad(D_pred, t, grad_outputs=torch.ones_like(D_pred), create_graph=True)[0]
+    S_t = grad(
+        S_pred, t, grad_outputs=torch.ones_like(S_pred), create_graph=True
+    )[0]
+    E_t = grad(
+        E_pred, t, grad_outputs=torch.ones_like(E_pred), create_graph=True
+    )[0]
+    Ia_t = grad(
+        Ia_pred, t, grad_outputs=torch.ones_like(Ia_pred), create_graph=True
+    )[0]
+    Is_t = grad(
+        Is_pred, t, grad_outputs=torch.ones_like(Is_pred), create_graph=True
+    )[0]
+    H_t = grad(
+        H_pred, t, grad_outputs=torch.ones_like(H_pred), create_graph=True
+    )[0]
+    C_t = grad(
+        C_pred, t, grad_outputs=torch.ones_like(C_pred), create_graph=True
+    )[0]
+    R_t = grad(
+        R_pred, t, grad_outputs=torch.ones_like(R_pred), create_graph=True
+    )[0]
+    D_t = grad(
+        D_pred, t, grad_outputs=torch.ones_like(D_pred), create_graph=True
+    )[0]
 
     dSdt, dEdt, dIsdt, dIadt, dHdt, dCdt, dRdt, dDdt = seird_model(
         [S_pred, E_pred, Is_pred, Ia_pred, H_pred, C_pred, R_pred, D_pred],
-        t,
+        t.squeeze(-1),
         N,
         beta_pred,
         alpha,
@@ -474,14 +493,14 @@ def einn_loss(model_output, tensor_data, parameters, t, constants):
     )
 
     residual_loss = (
-        torch.mean((S_t - dSdt) ** 2)
-        + torch.mean((E_t - dEdt) ** 2)
-        + torch.mean((Is_t - dIsdt) ** 2)
-        + torch.mean((Ia_t - dIadt) ** 2)
-        + torch.mean((H_t - dHdt) ** 2)
-        + torch.mean((C_t - dCdt) ** 2)
-        + torch.mean((R_t - dRdt) ** 2)
-        + torch.mean((D_t - dDdt) ** 2)
+        torch.mean((S_t.squeeze(-1) - dSdt) ** 2)
+        + torch.mean((E_t.squeeze(-1) - dEdt) ** 2)
+        + torch.mean((Is_t.squeeze(-1) - dIsdt) ** 2)
+        + torch.mean((Ia_t.squeeze(-1) - dIadt) ** 2)
+        + torch.mean((H_t.squeeze(-1) - dHdt) ** 2)
+        + torch.mean((C_t.squeeze(-1) - dCdt) ** 2)
+        + torch.mean((R_t.squeeze(-1) - dRdt) ** 2)
+        + torch.mean((D_t.squeeze(-1) - dDdt) ** 2)
     )
 
     # Initial condition loss
@@ -540,8 +559,6 @@ def train_model(
         model.train()
         parameter_net.train()
 
-        train_loss = 0.0
-
         t = time_stamps.to(device).float()
         data = data_scaled.to(device).float()
 
@@ -562,7 +579,9 @@ def train_model(
 
         train_loss = loss.item()
         train_losses.append(train_loss)
-        scheduler.step(train_loss)
+
+        # Corrected scheduler step call
+        scheduler.step()
 
         if (epoch + 1) % 500 == 0 or epoch == 0:
             print(f"Epoch {epoch + 1}/{num_epochs}, Train Loss: {train_loss:.6f}")
@@ -578,12 +597,12 @@ def train_model(
 
 
 # Initialize model, optimizer, and scheduler
-model = EpiNet(num_layers=6, hidden_neurons=20, output_size=8).to(device)
-parameter_net = ParameterNet(num_layers=5, hidden_neurons=20, output_size=6).to(device)
+model = EpiNet(num_layers=5, hidden_neurons=10, output_size=8).to(device)
+parameter_net = ParameterNet(num_layers=5, hidden_neurons=10, output_size=6).to(device)
 optimizer = optim.Adam(
     list(model.parameters()) + list(parameter_net.parameters()), lr=1e-4
 )
-# scheduler = ReduceLROnPlateau(optimizer, 'min', patience=100, factor=0.5, verbose=True)
+
 scheduler = StepLR(optimizer, step_size=5000, gamma=0.8)
 # Early stopping
 early_stopping = EarlyStopping(patience=100, verbose=True)
@@ -615,9 +634,10 @@ plt.xlabel("Epoch")
 plt.ylabel("Log10(Loss)")
 plt.title("Training Loss History")
 plt.legend()
+plt.tight_layout()
 plt.show()
 
-# Test the model on the training set
+# Test the model on the full dataset
 model.eval()
 parameter_net.eval()
 
@@ -768,7 +788,10 @@ fig, axs = plt.subplots(3, 2, figsize=(14, 12), sharex=True)
 
 def plot_time_varying_parameters(ax, parameter_estimation, parameter, ylabel):
     ax.plot(
-        data["date"], parameter_estimation[parameter], label="Estimated", color="purple"
+        data["date"],
+        parameter_estimation[parameter],
+        label="Estimated",
+        color="purple",
     )
     ax.set_ylabel(ylabel)
     ax.legend()
@@ -793,7 +816,6 @@ plt.xlabel("Date")
 plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 plt.show()
 
-
 # After obtaining parameters from the ParameterNet
 beta_pred, gamma_c_pred, delta_c_pred, eta_pred, mu_pred, omega_pred = parameters_full
 
@@ -809,6 +831,7 @@ omega_pred = omega_pred.detach()
 rho = model.rho.detach()
 alpha = model.alpha.detach()
 ds = model.ds.detach()
+mu_pred = mu_pred.squeeze(-1)
 
 # Calculate R_t
 Rt = beta_pred / (ds + mu_pred)
