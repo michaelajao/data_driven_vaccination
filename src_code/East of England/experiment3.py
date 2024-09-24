@@ -342,28 +342,31 @@ class EpiNet(nn.Module):
 
     @property
     def rho(self):
-        return torch.sigmoid(self._rho)  # Range [0, 1]
-
+        return 0.1 + 0.9 * torch.sigmoid(self._rho) # Range [0.1, 1.0]
+    
     @property
     def alpha(self):
-        return torch.sigmoid(self._alpha)  # Range [0, 1]
-
+        return 0.0 + 0.2 * torch.sigmoid(self._alpha) # Range [0.0, 0.2]
+    
     @property
     def ds(self):
-        return torch.sigmoid(self._ds)  # Range [0, 1]
-
+        return 0.0 + 0.5 * torch.sigmoid(self._ds) # Range [0.0, 0.5]
+    
     @property
     def da(self):
-        return torch.sigmoid(self._da)  # Range [0, 1]
-
+        return 0.0 + 0.5 * torch.sigmoid(self._da) # Range [0.0, 0.5]
+    
     @property
     def dH(self):
-        return torch.sigmoid(self._dH)  # Range [0, 1]
-
+        return 0.0 + 0.1 * torch.sigmoid(self._dH) # Range [0.0, 0.1]
+    
+    # Retrieve the constants for the model
     def get_constants(self):
         """Retrieve the constants for the model."""
         return self.rho, self.alpha, self.ds, self.da, self.dH
-
+    
+    
+    # Initialize weights using Xavier initialization
     def init_xavier(self):
         def init_weights(layer):
             if isinstance(layer, nn.Linear):

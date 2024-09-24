@@ -57,7 +57,7 @@ plt.rcParams.update(
     {
         "font.size": 14,
         "font.weight": "bold",
-        "figure.figsize": [10, 4],
+        "figure.figsize": [8, 4],
         "text.usetex": False,
         "figure.facecolor": "white",
         "figure.autolayout": True,
@@ -159,6 +159,68 @@ def seird_model(y, t, N, beta, alpha, rho, ds, da, omega, dH, mu, gamma_c, delta
 
     return dSdt, dEdt, dIsdt, dIadt, dHdt, dCdt, dRdt, dDdt
 
+# def load_preprocess_data(
+#     filepath,
+#     area_name,
+#     rolling_window=7,
+#     start_date="2020-04-01",
+#     end_date=None,
+# ):
+#     """Load and preprocess the COVID-19 data."""
+#     df = pd.read_csv(filepath)
+
+#     # Select the columns of interest
+#     df = df[df["areaName"] == area_name].reset_index(drop=True)
+
+#     # Convert the date column to datetime
+#     df["date"] = pd.to_datetime(df["date"])
+
+#     # Compute daily new values from cumulative values
+#     df["daily_confirmed"] = df["cumulative_confirmed"].diff().fillna(0)
+#     df["daily_deceased"] = df["cumulative_deceased"].diff().fillna(0)
+#     df["daily_hospitalized"] = df["cumAdmissions"].diff().fillna(0)
+
+#     # Ensure no negative values
+#     df["daily_confirmed"] = df["daily_confirmed"].clip(lower=0)
+#     df["daily_deceased"] = df["daily_deceased"].clip(lower=0)
+#     df["daily_hospitalized"] = df["daily_hospitalized"].clip(lower=0)
+
+#     required_columns = [
+#         "date",
+#         "population",
+#         "cumulative_confirmed",
+#         "cumulative_deceased",
+#         "new_confirmed",
+#         "new_deceased",
+#         "cumAdmissions",
+#         "daily_confirmed",
+#         "daily_deceased",
+#         "daily_hospitalized",
+#         "hospitalCases",
+#         "covidOccupiedMVBeds",
+#         "newAdmissions",
+#     ]
+
+#     # Select required columns
+#     df = df[required_columns]
+
+#     # Apply rolling average to smooth out data (except for date and population)
+#     for col in required_columns[2:]:
+#         df[col] = (
+#             df[col]
+#             .rolling(window=rolling_window, min_periods=1, center=False)
+#             .mean()
+#             .fillna(0)
+#         )
+
+#     # Select data from start date to end date
+#     mask = df["date"] >= start_date
+#     if end_date:
+#         mask &= df["date"] <= end_date
+#     df = df.loc[mask].reset_index(drop=True)
+
+#     return df
+
 # Data Loading and Preprocessing
 def load_preprocess_data(
     filepath,
@@ -176,6 +238,9 @@ def load_preprocess_data(
 
     # Convert the date column to datetime
     df["date"] = pd.to_datetime(df["date"])
+    
+    df["daily_confirmed"] = df["cumulative_confirmed"].diff().fillna(0)
+    df["daily_deceased"] = df["cumulative_deceased"].diff().fillna(0)
 
     # Calculate recovered cases
     df["recovered"] = (
@@ -204,6 +269,8 @@ def load_preprocess_data(
         "newAdmissions",
         "cumAdmissions",
         "recovered",
+        "daily_confirmed",
+        "daily_deceased",
     ]
     for col in cols_to_smooth:
         df[col] = (
@@ -226,15 +293,14 @@ area_name = "East of England"
 data = load_preprocess_data(
     "../../data/processed/merged_nhs_covid_data.csv",
     area_name,
-    recovery_period=21,
     rolling_window=7,
     start_date="2020-05-01",
     end_date="2020-08-31",
 )
 
 # Plot new deceased cases over time
-plt.figure(figsize=(10, 4))
-plt.plot(data["date"], data["new_deceased"], label="New Deceased")
+plt.figure(figsize=(8, 4))
+plt.plot(data["date"], data["daily_deceased"], label="daily_deceased")
 plt.title("New Deceased over Time")
 plt.xlabel("Date")
 plt.ylabel("New Deceased")
@@ -278,7 +344,7 @@ def split_and_scale_data(data, train_size, features, device):
     return train_tensors, val_tensors, scaler
 
 # Define features
-features = ["new_confirmed", "newAdmissions", "covidOccupiedMVBeds", "new_deceased", "recovered"]
+features = ["daily_confirmed", "newAdmissions", "covidOccupiedMVBeds", "daily_deceased", "recovered"]
 
 # Set train size (number of days)
 train_size = 60
@@ -391,10 +457,10 @@ def pinn_loss(
     D_pred = D_pred.squeeze(-1)
 
     # Extract data tensors
-    Is_data = torch.cat((data_tensors["train"]["new_confirmed"], data_tensors["val"]["new_confirmed"])).squeeze(-1)
+    Is_data = torch.cat((data_tensors["train"]["daily_confirmed"], data_tensors["val"]["daily_confirmed"])).squeeze(-1)
     H_data = torch.cat((data_tensors["train"]["newAdmissions"], data_tensors["val"]["newAdmissions"])).squeeze(-1)
     C_data = torch.cat((data_tensors["train"]["covidOccupiedMVBeds"], data_tensors["val"]["covidOccupiedMVBeds"])).squeeze(-1)
-    D_data = torch.cat((data_tensors["train"]["new_deceased"], data_tensors["val"]["new_deceased"])).squeeze(-1)
+    D_data = torch.cat((data_tensors["train"]["daily_deceased"], data_tensors["val"]["daily_deceased"])).squeeze(-1)
     R_data = torch.cat((data_tensors["train"]["recovered"], data_tensors["val"]["recovered"])).squeeze(-1)
 
     # Total population (normalized)
@@ -576,7 +642,6 @@ def train_model(
 # Plotting functions
 def plot_loss(losses, title="Training Loss", filename=None):
     """Plot the training loss history."""
-    plt.figure(figsize=(10, 6))
     plt.plot(np.arange(1, len(losses) + 1), losses, label="Loss", color="black")
     plt.yscale("log")
     plt.title(title)
@@ -599,7 +664,7 @@ def plot_actual_vs_predicted(
     filename=None,
 ):
     """Plot actual vs predicted values."""
-    fig, axs = plt.subplots(len(features), 1, figsize=(10, 12), sharex=True)
+    fig, axs = plt.subplots(len(features), 1, figsize=(10, 10), sharex=True)
 
     for i, feature in enumerate(features):
         axs[i].plot(
@@ -627,7 +692,7 @@ def plot_actual_vs_predicted(
         )
         axs[i].set_ylabel(feature.replace("_", " ").title())
         axs[i].legend()
-        axs[i].grid(True, linestyle="--", alpha=0.7)
+        # axs[i].grid(True, linestyle="--", alpha=0.7)
 
     axs[-1].set_xlabel("Date")
     plt.suptitle(f"EINN Model Predictions for {area_name}")
@@ -658,7 +723,7 @@ model = StateNN(
     inverse=True,
     init_params=init_params,
     num_layers=8,
-    hidden_neurons=32,
+    hidden_neurons=20,
     seed=seed,
 ).to(device)
 
@@ -678,7 +743,7 @@ scheduler = StepLR(optimizer, step_size=5000, gamma=0.9)
 early_stopping = EarlyStopping(patience=100, verbose=True)
 
 # Number of epochs
-num_epochs = 100000
+num_epochs = 50000
 
 # Prepare data tensors
 data_tensors = {"train": train_tensors, "val": val_tensors}

@@ -488,6 +488,16 @@ def einn_loss(model_output, tensor_data, parameters, t, constants):
 
     # Total loss
     loss = data_loss + residual_loss + initial_cost
+    
+    # L2 Regularization
+    l2_reg = torch.tensor(0.0).to(device)
+    for param in model.parameters():
+        l2_reg += torch.norm(param)
+    for param in parameter_net.parameters():
+        l2_reg += torch.norm(param)
+
+    # Add regularization to the total loss
+    loss += 1e-4 * l2_reg
     return loss
 
 
@@ -675,7 +685,7 @@ for col in features:
     )
 
 # Plot Observed Data vs Predicted Data in 4x1 layout
-fig, axs = plt.subplots(4, 1, figsize=(12, 16), sharex=True)
+fig, axs = plt.subplots(4, 1, figsize=(10, 10), sharex=True)
 
 
 def plot_observed_vs_predicted(
@@ -709,11 +719,11 @@ plot_observed_vs_predicted(
 
 fig.suptitle("Observed vs Predicted Data", fontsize=14, fontweight="bold")
 plt.xlabel("Date")
-plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+plt.tight_layout()
 plt.show()
 
 # Unobserved Data Visualization in 4x1 layout
-fig, axs = plt.subplots(4, 1, figsize=(12, 16), sharex=True)
+fig, axs = plt.subplots(4, 1, figsize=(10, 10), sharex=True)
 
 
 def plot_unobserved_data(ax, unobserved_model_output, variable, ylabel):
@@ -735,7 +745,7 @@ plot_unobserved_data(axs[3], unobserved_model_output, "R", r"$R$")
 
 fig.suptitle("Unobserved Data Predictions", fontsize=14, fontweight="bold")
 plt.xlabel("Date")
-plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+plt.tight_layout()
 plt.show()
 
 # Time-Varying Parameter Estimation Visualization in 3x2 layout
@@ -751,12 +761,24 @@ parameter_estimation = pd.DataFrame(
     index=data.index,
 )
 
+# Convert parameter estimations to DataFrame
+parameter_estimation_df = parameter_estimation.reset_index()
+parameter_estimation_df.rename(columns={'index': 'Date'}, inplace=True)
+parameter_estimation_df['Date'] = data['date'].values
+
+# Save parameter estimations to CSV
+parameter_estimation_df.to_csv(
+    f"../../reports/parameters/{len(train_data)}_{area_name}_learned_params.csv",
+    index=False,
+)
+
+
 # Apply smoothing to parameters for better visualization
 parameter_estimation_smooth = parameter_estimation.rolling(
     window=7, min_periods=1
 ).mean()
 
-fig, axs = plt.subplots(3, 2, figsize=(14, 12), sharex=True)
+fig, axs = plt.subplots(3, 2, figsize=(10,10), sharex=True)
 
 
 def plot_time_varying_parameters(ax, parameter_estimation, parameter, ylabel):
@@ -783,7 +805,7 @@ plot_time_varying_parameters(
 
 fig.suptitle("Time-Varying Parameter Estimation", fontsize=14, fontweight="bold")
 plt.xlabel("Date")
-plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+plt.tight_layout()
 plt.show()
 
 
@@ -818,13 +840,25 @@ plt.tight_layout()
 plt.show()
 
 # Compute error metrics on validation data
+# Initialize a dictionary to store metrics
+metrics = {'Metric': [], 'Value': []}
+
 print("\nValidation Metrics:")
 for col in features:
     print(f"\nMetrics for {col}:")
-    calculate_errors(
+    mape, nrmse, mase, rmse, mae, mse = calculate_errors(
         val_data[col].values,
         observed_model_output_scaled.loc[val_data.index, col].values,
         train_data[col].values,
         train_size=len(train_data),
         area_name=area_name,
     )
+    # Append metrics to the dictionary
+    metrics['Metric'].extend(['MAPE', 'NRMSE', 'MASE', 'RMSE', 'MAE', 'MSE'])
+    metrics['Value'].extend([mape, nrmse, mase, rmse, mae, mse])
+
+# Convert metrics dictionary to DataFrame and save
+metrics_df = pd.DataFrame(metrics)
+metrics_df.to_csv(
+    f"../../reports/results/{len(train_data)}_{area_name}_metrics.csv", index=False
+)
