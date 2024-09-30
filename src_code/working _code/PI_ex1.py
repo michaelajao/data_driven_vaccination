@@ -1,4 +1,6 @@
-# Import necessary libraries
+# ================================================================
+# Import Necessary Libraries
+# ================================================================
 import os
 import numpy as np
 import pandas as pd
@@ -718,7 +720,7 @@ class EarlyStopping:
     def __init__(self, patience=20, verbose=False, delta=0):
         self.patience = patience
         self.verbose = verbose
-        self.delta = delta
+        self.delta = delta  
         self.best_score = None
         self.early_stop = False
         self.val_loss_min = np.Inf
