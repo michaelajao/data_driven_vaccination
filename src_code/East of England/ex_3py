@@ -6,14 +6,18 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import scienceplots
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import torch
 import torch.nn as nn
 from torch.autograd import grad
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
+from sklearn.metrics import (
+    mean_absolute_error,
+    mean_squared_error,
+    mean_absolute_percentage_error,
+)
 
 # Ensure the necessary directories exist
 os.makedirs("../../models", exist_ok=True)
@@ -24,20 +28,14 @@ os.makedirs("../../reports/parameters", exist_ok=True)
 # ================================================================
 # Device Setup for CUDA or CPU and Seed Initialization
 # ================================================================
-# Use multiple GPUs if available
-if torch.cuda.device_count() > 1:
-    device = torch.device("cuda")
-    print(f"Using {torch.cuda.device_count()} GPUs.")
-else:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-    
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
 
 # Set random seed for reproducibility
 seed = 42
 torch.manual_seed(seed)
 if device.type == 'cuda':
-    torch.cuda.manual_seed_all(seed)
+    torch.cuda.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 np.random.seed(seed)
@@ -150,7 +148,7 @@ def load_preprocess_data(filepath, area_name, rolling_window=7, start_date="2020
     """Load and preprocess the COVID-19 data."""
     df = pd.read_csv(filepath)
 
-    # Select the columns of interest
+    # Select the area of interest
     df = df[df["areaName"] == area_name].reset_index(drop=True)
 
     # Convert the date column to datetime
@@ -174,9 +172,9 @@ def load_preprocess_data(filepath, area_name, rolling_window=7, start_date="2020
     # Select required columns
     df = df[required_columns]
 
-    # Apply rolling average to smooth out data (except for date and population)
+    # Apply rolling average to smooth out data
     for col in required_columns[2:]:
-        df[col] = df[col].rolling(window=rolling_window, min_periods=1, center=False).mean().fillna(0)
+        df[col] = df[col].rolling(window=rolling_window, min_periods=1).mean().fillna(0)
 
     # Select data from start date to end date
     mask = df["date"] >= start_date
@@ -261,11 +259,11 @@ class EpiNet(nn.Module):
         self.net = nn.Sequential(*layers)
 
         # Initialize parameters with constraints
-        self._rho = nn.Parameter(torch.tensor([0.8]), requires_grad=True)
-        self._alpha = nn.Parameter(torch.tensor([0.2]), requires_grad=True)
-        self._ds = nn.Parameter(torch.tensor([0.1]), requires_grad=True)
-        self._da = nn.Parameter(torch.tensor([0.1]), requires_grad=True)
-        self._dH = nn.Parameter(torch.tensor([0.05]), requires_grad=True)
+        self._rho = nn.Parameter(torch.tensor([0.8], device=device), requires_grad=False)
+        self._alpha = nn.Parameter(torch.tensor([1 / 5], device=device), requires_grad=False)
+        self._ds = nn.Parameter(torch.tensor([1 / 4], device=device), requires_grad=False)
+        self._da = nn.Parameter(torch.tensor([1 / 7], device=device), requires_grad=False)
+        self._dH = nn.Parameter(torch.tensor([1 / 13.4], device=device), requires_grad=False)
 
         # Initialize weights using Xavier initialization
         self.init_xavier()
@@ -275,23 +273,23 @@ class EpiNet(nn.Module):
 
     @property
     def rho(self):
-        return 0.1 + 0.9 * torch.sigmoid(self._rho)  # Range [0.1, 1.0]
+        return torch.sigmoid(self._rho) 
 
     @property
     def alpha(self):
-        return 0.1 + 0.9 * torch.sigmoid(self._alpha)  # Range [0.1, 1.0]
+        return torch.sigmoid(self._alpha) 
 
     @property
     def ds(self):
-        return 0.1 + 0.9 * torch.sigmoid(self._ds)  # Range [0.1, 1.0]
+        return torch.sigmoid(self._ds) 
 
     @property
     def da(self):
-        return 0.1 + 0.9 * torch.sigmoid(self._da)  # Range [0.1, 1.0]
+        return torch.sigmoid(self._da) 
 
     @property
     def dH(self):
-        return 0.1 + 0.9 * torch.sigmoid(self._dH)  # Range [0.1, 1.0]
+        return torch.sigmoid(self._dH) 
 
     def get_constants(self):
         """Retrieve the constants for the model."""
@@ -325,12 +323,12 @@ class ParameterNet(nn.Module):
     def forward(self, t):
         raw_parameters = self.net(t)
         # Apply scaling to parameters to constrain them within realistic ranges
-        beta = 0.1 + 0.9 * torch.sigmoid(raw_parameters[:, 0])        # Range [0.1, 1.0]
-        gamma_c = 0.0 + 0.5 * torch.sigmoid(raw_parameters[:, 1])     # Range [0.0, 0.5]
-        delta_c = 0.0 + 0.5 * torch.sigmoid(raw_parameters[:, 2])     # Range [0.0, 0.5]
-        eta = 0.0 + 0.2 * torch.sigmoid(raw_parameters[:, 3])         # Range [0.0, 0.2]
-        mu = 0.0 + 0.1 * torch.sigmoid(raw_parameters[:, 4])          # Range [0.0, 0.1]
-        omega = 0.0 + 0.5 * torch.sigmoid(raw_parameters[:, 5])       # Range [0.0, 0.5]
+        beta = torch.sigmoid(raw_parameters[:, 0])        # Range [0.1, 1.0]
+        gamma_c =torch.sigmoid(raw_parameters[:, 1])     # Range [0.0, 0.5]
+        delta_c = torch.sigmoid(raw_parameters[:, 2])     # Range [0.0, 0.5]
+        eta = torch.sigmoid(raw_parameters[:, 3])         # Range [0.0, 0.2]
+        mu = torch.sigmoid(raw_parameters[:, 4])          # Range [0.0, 0.1]
+        omega = torch.sigmoid(raw_parameters[:, 5])       # Range [0.0, 0.5]
         return beta, gamma_c, delta_c, eta, mu, omega
 
     def init_xavier(self):
@@ -348,23 +346,9 @@ class ParameterNet(nn.Module):
 # ================================================================
 def pinn_loss(model_output, tensor_data, parameters, t, constants):
     """Calculate the Physics-Informed Neural Network loss."""
-    S_pred, E_pred, Is_pred, Ia_pred, H_pred, C_pred, R_pred, D_pred = (
-        model_output[:, 0],
-        model_output[:, 1],
-        model_output[:, 2],
-        model_output[:, 3],
-        model_output[:, 4],
-        model_output[:, 5],
-        model_output[:, 6],
-        model_output[:, 7],
-    )
+    S_pred, E_pred, Is_pred, Ia_pred, H_pred, C_pred, R_pred, D_pred = model_output.T
 
-    Is_data, H_data, C_data, D_data = (
-        tensor_data[:, 0],
-        tensor_data[:, 1],
-        tensor_data[:, 2],
-        tensor_data[:, 3],
-    )
+    Is_data, H_data, C_data, D_data = tensor_data.T
 
     N = 1  # Since data is normalized
 
@@ -423,10 +407,10 @@ def pinn_loss(model_output, tensor_data, parameters, t, constants):
     # Initial condition loss
     Is0, H0, C0, D0 = Is_data[0], H_data[0], C_data[0], D_data[0]
     initial_cost = (
-        torch.mean((Is_pred[0] - Is0) ** 2)
-        + torch.mean((H_pred[0] - H0) ** 2)
-        + torch.mean((C_pred[0] - C0) ** 2)
-        + torch.mean((D_pred[0] - D0) ** 2)
+        (Is_pred[0] - Is0) ** 2
+        + (H_pred[0] - H0) ** 2
+        + (C_pred[0] - C0) ** 2
+        + (D_pred[0] - D0) ** 2
     )
 
     # Total loss
@@ -444,7 +428,6 @@ class EarlyStopping:
         self.delta = delta
         self.best_score = None
         self.early_stop = False
-        self.val_loss_min = np.Inf
         self.counter = 0
 
     def __call__(self, val_loss):
@@ -462,7 +445,7 @@ class EarlyStopping:
             self.counter = 0
 
 # ================================================================
-# Training Function
+# Training Function with TQDM Progress Bar and Gradient Handling Fix
 # ================================================================
 def train_model(
     model,
@@ -470,74 +453,67 @@ def train_model(
     optimizer,
     scheduler,
     time_stamps,
-    train_data_scaled,
-    num_epochs=50000,
+    data_scaled,
+    num_epochs=5000,
     early_stopping=None,
 ):
     """Train the EpiNet model with tqdm for progress tracking."""
     train_losses = []
 
+    # Ensure time_stamps requires gradient for backpropagation
     time_stamps = time_stamps.to(device).float().requires_grad_()
-    train_data_scaled = train_data_scaled.to(device).float()
 
-    with tqdm(total=num_epochs) as pbar:  # Use tqdm to track progress across epochs
-        for epoch in range(num_epochs):
-            model.train()
-            parameter_net.train()
+    # Training loop with tqdm progress bar
+    for epoch in tqdm(range(num_epochs)):
+        model.train()
+        parameter_net.train()
 
-            # Zero gradients
-            optimizer.zero_grad()
+        # Zero gradients
+        optimizer.zero_grad()
 
-            # Forward pass
-            model_output = model(time_stamps)
-            parameters = parameter_net(time_stamps)
+        # Prepare data tensors
+        data = data_scaled.to(device).float()
 
-            # Handle multi-GPU access to get_constants()
-            if isinstance(model, nn.DataParallel):
-                constants = model.module.get_constants()
-            else:
-                constants = model.get_constants()
+        # Forward pass
+        model_output = model(time_stamps)
+        parameters = parameter_net(time_stamps)
+        constants = model.get_constants()
 
-            # Compute loss
-            loss = pinn_loss(model_output, train_data_scaled, parameters, time_stamps, constants)
+        # Compute loss
+        loss = pinn_loss(model_output, data, parameters, time_stamps, constants)
 
-            # Backward pass and optimization
-            loss.backward()
-            optimizer.step()
+        # Backward pass and optimization
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
 
-            # Append loss for tracking
-            train_losses.append(loss.item())
-            scheduler.step(loss.item())
+        # Log training loss
+        train_loss = loss.item()
+        train_losses.append(train_loss)
 
-            # Update tqdm progress bar
-            pbar.set_description(f"Epoch {epoch + 1}/{num_epochs}, Loss: {loss.item():.6f}")
-            pbar.update(1)
+        # Print every 500 epochs or first epoch
+        if (epoch + 1) % 500 == 0 or epoch == 0:
+            print(f"Epoch {epoch + 1}/{num_epochs}, Train Loss: {train_loss:.6f}")
 
-            # Check early stopping
-            if early_stopping:
-                early_stopping(loss.item())
-                if early_stopping.early_stop:
-                    print("Early stopping")
-                    break
+        # Check early stopping
+        if early_stopping:
+            early_stopping(train_loss)
+            if early_stopping.early_stop:
+                print("Early stopping")
+                break
 
     return train_losses
-
 
 # ================================================================
 # Model Initialization and Training
 # ================================================================
 # Initialize models
 model = EpiNet(num_layers=5, hidden_neurons=20, output_size=8)
-parameter_net = ParameterNet(num_layers=5, hidden_neurons=20, output_size=6)
+parameter_net = ParameterNet(num_layers=2, hidden_neurons=20, output_size=6)
 
 # Move models to device
 model = model.to(device)
 parameter_net = parameter_net.to(device)
-
-# Use DataParallel for multi-GPU training
-if torch.cuda.device_count() > 1:
-    model = nn.DataParallel(model)
-    parameter_net = nn.DataParallel(parameter_net)
 
 # Initialize optimizer and scheduler
 optimizer = optim.AdamW(
@@ -747,10 +723,10 @@ beta_pred = beta_pred.detach()
 mu_pred = mu_pred.detach()
 
 # Retrieve constant parameters and detach
-rho = model.module.rho.detach() if isinstance(model, nn.DataParallel) else model.rho.detach()
-alpha = model.module.alpha.detach() if isinstance(model, nn.DataParallel) else model.alpha.detach()
-ds = model.module.ds.detach() if isinstance(model, nn.DataParallel) else model.ds.detach()
-da = model.module.da.detach() if isinstance(model, nn.DataParallel) else model.da.detach()
+rho = model.rho.detach()
+alpha = model.alpha.detach()
+ds = model.ds.detach()
+da = model.da.detach()
 
 # Calculate R_t
 Rt = beta_pred * (rho / (ds + mu_pred) + (1 - rho) / da)
