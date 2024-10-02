@@ -1,3 +1,6 @@
+# ================================================================
+# Import Necessary Libraries
+# ================================================================
 import os
 import numpy as np
 import pandas as pd
@@ -166,6 +169,18 @@ def seird_model(
 
 area_name = "East of England"
 
+data = pd.read_csv("../../data/processed/merged_nhs_covid_data.csv")
+data = data[data["areaName"] == area_name].reset_index(drop=True)
+data.head() # Display the first few rows of the data
+
+def load_preprocess_data(
+    filepath,
+    area_name,
+    recovery_period=16,
+    rolling_window=7,
+    start_date="2020-04-01",
+    end_date=None,
+):
 
 def load_preprocess_data(
     filepath,
@@ -230,6 +245,17 @@ def load_preprocess_data(
 
     return df
 
+
+data = load_preprocess_data(
+    "../../data/processed/merged_nhs_covid_data.csv",
+    area_name,
+    recovery_period=21,
+    rolling_window=7,
+    start_date="2020-05-01",
+    end_date="2021-12-31",
+)
+
+data.head()
 
 data = load_preprocess_data(
     "../../data/processed/merged_nhs_covid_data.csv",
@@ -318,6 +344,18 @@ class EpiNet(nn.Module):
         # In EpiNet class
         self._rho = nn.Parameter(torch.tensor([0.8], device=device), requires_grad=True)
         self._alpha = nn.Parameter(
+            torch.tensor([1 / 5], device=device), requires_grad=True
+        )
+        self._ds = nn.Parameter(
+            torch.tensor([1 / 4], device=device), requires_grad=True
+        )
+        self._da = nn.Parameter(
+            torch.tensor([1 / 7], device=device), requires_grad=True
+        )
+        self._dH = nn.Parameter(
+            torch.tensor([1 / 13.4], device=device), requires_grad=True
+        )
+        self._alpha = nn.Parameter(
             torch.tensor([0.2], device=device), requires_grad=True
         )
         self._ds = nn.Parameter(torch.tensor([0.1], device=device), requires_grad=True)
@@ -332,23 +370,31 @@ class EpiNet(nn.Module):
 
     @property
     def rho(self):
+        return torch.sigmoid(self._rho)
+
         return 0.1 + 0.9 * torch.sigmoid(self._rho)  # Range [0.1, 1.0]
 
     @property
     def alpha(self):
+        return torch.sigmoid(self._alpha)
+
         return 0.1 + 0.9 * torch.sigmoid(self._alpha)  # Range [0.1, 1.0]
 
     @property
     def ds(self):
+        return torch.sigmoid(self._ds)
+
         return 0.1 + 0.9 * torch.sigmoid(self._ds)  # Range [0.1, 1.0]
 
     @property
     def da(self):
+        return torch.sigmoid(self._da)
+
         return 0.1 + 0.9 * torch.sigmoid(self._da)  # Range [0.1, 1.0]
 
     @property
     def dH(self):
-        return 0.1 + 0.9 * torch.sigmoid(self._dH)  # Range [0.1, 1.0]
+        return torch.sigmoid(self._dH)
 
     def get_constants(self):
         """Retrieve the constants for the model."""
@@ -386,6 +432,12 @@ class ParameterNet(nn.Module):
         raw_parameters = self.net(t)
 
         # Apply sigmoid and scale to specific ranges
+        beta = torch.sigmoid(raw_parameters[:, 0])
+        gamma_c = torch.sigmoid(raw_parameters[:, 1])
+        delta_c = torch.sigmoid(raw_parameters[:, 2])
+        eta = torch.sigmoid(raw_parameters[:, 3])
+        mu = torch.sigmoid(raw_parameters[:, 4])
+        omega = torch.sigmoid(raw_parameters[:, 5])
         beta = 0.1 + 0.9 * torch.sigmoid(raw_parameters[:, 0])  # Range [0.1, 1.0]
         gamma_c = 0.0 + 0.5 * torch.sigmoid(raw_parameters[:, 1])  # Range [0.0, 0.5]
         delta_c = 0.0 + 0.5 * torch.sigmoid(raw_parameters[:, 2])  # Range [0.0, 0.5]
@@ -486,18 +538,7 @@ def einn_loss(model_output, tensor_data, parameters, t, constants):
         + torch.mean((D_pred[0] - D0) ** 2)
     )
 
-    # Total loss
     loss = data_loss + residual_loss + initial_cost
-    
-    # L2 Regularization
-    l2_reg = torch.tensor(0.0).to(device)
-    for param in model.parameters():
-        l2_reg += torch.norm(param)
-    for param in parameter_net.parameters():
-        l2_reg += torch.norm(param)
-
-    # Add regularization to the total loss
-    loss += 1e-4 * l2_reg
     return loss
 
 
@@ -581,6 +622,8 @@ def train_model(
 
 
 # Initialize model, optimizer, and scheduler
+model = EpiNet(num_layers=5, hidden_neurons=10, output_size=8).to(device)
+parameter_net = ParameterNet(num_layers=2, hidden_neurons=10, output_size=6).to(device)
 model = EpiNet(num_layers=5, hidden_neurons=20, output_size=8).to(device)
 parameter_net = ParameterNet(num_layers=5, hidden_neurons=20, output_size=6).to(device)
 optimizer = optim.Adam(
@@ -685,9 +728,12 @@ for col in features:
     )
 
 # Plot Observed Data vs Predicted Data in 4x1 layout
-fig, axs = plt.subplots(4, 1, figsize=(10, 10), sharex=True)
+fig, axs = plt.subplots(4, 1, figsize=(12, 16), sharex=True)
 
 
+def plot_observed_vs_predicted(
+    ax, data, observed_model_output_scaled, variable, ylabel
+):
 def plot_observed_vs_predicted(
     ax, data, observed_model_output_scaled, variable, ylabel
 ):
@@ -719,10 +765,12 @@ plot_observed_vs_predicted(
 
 fig.suptitle("Observed vs Predicted Data", fontsize=14, fontweight="bold")
 plt.xlabel("Date")
-plt.tight_layout()
+plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 plt.show()
 
 # Unobserved Data Visualization in 4x1 layout
+fig, axs = plt.subplots(4, 1, figsize=(12, 16), sharex=True)
+
 fig, axs = plt.subplots(4, 1, figsize=(10, 10), sharex=True)
 
 
@@ -745,7 +793,7 @@ plot_unobserved_data(axs[3], unobserved_model_output, "R", r"$R$")
 
 fig.suptitle("Unobserved Data Predictions", fontsize=14, fontweight="bold")
 plt.xlabel("Date")
-plt.tight_layout()
+plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 plt.show()
 
 # Time-Varying Parameter Estimation Visualization in 3x2 layout
@@ -761,22 +809,12 @@ parameter_estimation = pd.DataFrame(
     index=data.index,
 )
 
-# Convert parameter estimations to DataFrame
-parameter_estimation_df = parameter_estimation.reset_index()
-parameter_estimation_df.rename(columns={'index': 'Date'}, inplace=True)
-parameter_estimation_df['Date'] = data['date'].values
-
-# Save parameter estimations to CSV
-parameter_estimation_df.to_csv(
-    f"../../reports/parameters/{len(train_data)}_{area_name}_learned_params.csv",
-    index=False,
-)
-
-
 # Apply smoothing to parameters for better visualization
 parameter_estimation_smooth = parameter_estimation.rolling(
     window=7, min_periods=1
 ).mean()
+
+fig, axs = plt.subplots(3, 2, figsize=(14, 12), sharex=True)
 
 fig, axs = plt.subplots(3, 2, figsize=(10,10), sharex=True)
 
@@ -805,7 +843,7 @@ plot_time_varying_parameters(
 
 fig.suptitle("Time-Varying Parameter Estimation", fontsize=14, fontweight="bold")
 plt.xlabel("Date")
-plt.tight_layout()
+plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 plt.show()
 
 
@@ -840,25 +878,13 @@ plt.tight_layout()
 plt.show()
 
 # Compute error metrics on validation data
-# Initialize a dictionary to store metrics
-metrics = {'Metric': [], 'Value': []}
-
 print("\nValidation Metrics:")
 for col in features:
     print(f"\nMetrics for {col}:")
-    mape, nrmse, mase, rmse, mae, mse = calculate_errors(
+    calculate_errors(
         val_data[col].values,
         observed_model_output_scaled.loc[val_data.index, col].values,
         train_data[col].values,
         train_size=len(train_data),
         area_name=area_name,
     )
-    # Append metrics to the dictionary
-    metrics['Metric'].extend(['MAPE', 'NRMSE', 'MASE', 'RMSE', 'MAE', 'MSE'])
-    metrics['Value'].extend([mape, nrmse, mase, rmse, mae, mse])
-
-# Convert metrics dictionary to DataFrame and save
-metrics_df = pd.DataFrame(metrics)
-metrics_df.to_csv(
-    f"../../reports/results/{len(train_data)}_{area_name}_metrics.csv", index=False
-)
