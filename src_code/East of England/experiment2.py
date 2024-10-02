@@ -133,7 +133,7 @@ def seird_model(y, t, N, beta, alpha, rho, ds, da, omega, dH, mu, gamma_c, delta
     dSdt = -beta * (Is + Ia) / N * S + eta * R
     dEdt = beta * (Is + Ia) / N * S - alpha * E
     dIsdt = alpha * rho * E - ds * Is
-    dIadt = alpha * (1 - rho) * E - da * Ia
+    dIadt = alpha * (1 - rho) * E - da * Ia                                                                                                                                                       
     dHdt = ds * omega * Is - dH * H - mu * H
     dCdt = dH * (1 - omega) * H - gamma_c * C - delta_c * C
     dRdt = ds * (1 - omega) * Is + da * Ia + dH * (1 - mu) * H + gamma_c * C - eta * R
